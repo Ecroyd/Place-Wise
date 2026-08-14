@@ -1,0 +1,1 @@
+import { mockCells } from "@/src/lib/data/mockCells";export async function GET(_:Request,{params}:{params:Promise<{h3:string}>}){const {h3}=await params;const row=mockCells.find(x=>x.h3Index===h3);return row?Response.json(row):Response.json({error:"Not found"},{status:404})}
