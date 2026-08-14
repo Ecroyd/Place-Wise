@@ -1,5 +1,5 @@
-import { LocationApp } from "@/src/components/LocationApp";
+import { HeatMapApp } from "@/src/components/HeatMapApp";
 
 export default function Home() {
-  return <LocationApp />;
+  return <HeatMapApp />;
 }
