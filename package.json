@@ -15,7 +15,10 @@
     "db:generate": "drizzle-kit generate"
   },
   "dependencies": {
+    "@supabase/supabase-js": "^2.115.0",
     "drizzle-orm": "0.45.2",
+    "h3-js": "^4.5.0",
+    "maplibre-gl": "^6.7.0",
     "react": "19.2.6",
     "react-dom": "19.2.6",
     "zod": "4.1.12"
