@@ -1,7 +1,6 @@
 "use client";
 import {useEffect,useRef} from "react";
 import type {GeoJSONSource,Map as MapLibreMap} from "maplibre-gl";
-import "maplibre-gl/dist/maplibre-gl.css";
 import {cellToBoundary} from "h3-js";
 import type {LocationScore} from "@/src/types/domain";
 
