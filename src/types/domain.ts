@@ -1,8 +1,9 @@
 export type OptimisationMode = "live" | "work" | "business";
-export type TransportMode = "drive" | "transit" | "walk" | "cycle" | "mixed";
+export type TransportMode = "drive" | "transit" | "walk" | "cycle" | "mixed" | "any";
 export type PreferenceKey = "schools" | "greenSpace" | "rurality" | "amenities" | "restaurants" | "lowCrime" | "railAccess" | "motorwayAccess" | "broadband" | "healthcare" | "shopping" | "nightlife";
 export interface Coordinates { latitude:number; longitude:number }
-export interface DestinationConstraint extends Coordinates { id:string; label:string; purpose:string; journeysPerWeek:number; minimumMinutes?:number; preferredMinutes?:number; maximumMinutes?:number; maximumDistanceKm?:number; transportMode:TransportMode; weight:number; hardMaximum:boolean }
+export interface JourneyStep { mode:string; minutes:number; line?:string; from?:string; to?:string }
+export interface DestinationConstraint extends Coordinates { id:string; label:string; purpose:string; journeysPerWeek:number; departureTime?:string; minimumMinutes?:number; preferredMinutes?:number; maximumMinutes?:number; minimumDistanceKm?:number; maximumDistanceKm?:number; transportMode:TransportMode; weight:number; hardMaximum:boolean }
 export interface LifestylePreference { key:PreferenceKey; weight:number; hardConstraint?:boolean; minimumAcceptableScore?:number }
 export interface PropertyConstraints { maximumBudget?:number; hardBudget?:boolean; minimumBedrooms?:number; propertyTypes?:string[]; tenure?:"buy"|"rent"; minimumAreaSqm?:number; minimumGardenSqm?:number }
 export interface WorkConstraints { minimumSalary?:number; role?:string; industries?:string[]; daysInOffice?:number; hybridPreference?:"remote"|"hybrid"|"office"; careerGrowthWeight?:number }

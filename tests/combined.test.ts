@@ -1,0 +1,21 @@
+import {beforeEach,describe,expect,it,vi} from 'vitest';
+import type {DestinationConstraint} from '../src/types/domain';
+import {routeFits} from '../src/lib/data/combined';
+const {route,nearby,prices}=vi.hoisted(()=>({route:vi.fn(),nearby:vi.fn(),prices:vi.fn()}));
+vi.mock('../src/lib/routing/provider',()=>({getLiveRoutingProvider:()=>({getTravelTime:route})}));
+vi.mock('../app/api/areas/route',()=>({POST:nearby}));
+vi.mock('../app/api/layers/route',()=>({GET:prices}));
+vi.mock('node:fs/promises',()=>({readFile:async()=>JSON.stringify({schools:[{id:'school',name:'Good primary',latitude:51.501,longitude:-0.151,phase:'Primary',grades:{},legacy:'2'}]})}));
+import {POST} from '../app/api/matches/route';
+const destination:DestinationConstraint={id:'a',label:'Office A',purpose:'Work',latitude:51.5,longitude:-0.15,journeysPerWeek:5,minimumMinutes:0,maximumMinutes:30,maximumDistanceKm:40,transportMode:'walk',weight:100,hardMaximum:true};
+const second={...destination,id:'b',label:'Office B',transportMode:'cycle' as const,maximumMinutes:45};
+const request=(school=false)=>new Request('http://localhost/api/matches',{method:'POST',body:JSON.stringify({destinations:[destination,second],minimumPrice:300000,maximumPrice:500000,school:{enabled:school,phase:'Primary',rating:'legacy:2',reportArea:'Achievement',maximumWalkMinutes:15}})});
+beforeEach(()=>{vi.clearAllMocks();nearby.mockResolvedValue(Response.json({areas:[{id:'area',latitude:51.5,longitude:-0.15,withinLimits:true}]}));prices.mockResolvedValue(Response.json({points:[{id:'SW1',name:'SW1',latitude:51.5,longitude:-0.15,price:400000,details:[]}]}));route.mockResolvedValue({minutes:12,distanceKm:3});});
+describe('combined matching',()=>{
+ it('requires measured distance when a distance limit exists',()=>{expect(routeFits({minutes:10},destination)).toBe(false);expect(routeFits({minutes:10,distanceKm:41},destination)).toBe(false);expect(routeFits({minutes:10,distanceKm:5},destination)).toBe(true);});
+ it('checks the same sale location against both destinations using their own modes',async()=>{const data=await (await POST(request())).json();expect(data.matches).toHaveLength(1);expect(data.matches[0].journeys.map((j:{mode:string})=>j.mode)).toEqual(['walk','cycle']);expect(route.mock.calls[0][0]).toEqual(route.mock.calls[1][0]);});
+ it('rejects a location if only one commute fits',async()=>{route.mockResolvedValueOnce({minutes:12,distanceKm:3}).mockResolvedValueOnce({minutes:46,distanceKm:3});const data=await (await POST(request())).json();expect(data.matches).toHaveLength(0);});
+ it('requires a routed walk to a matching school',async()=>{route.mockResolvedValueOnce({minutes:12,distanceKm:3}).mockResolvedValueOnce({minutes:20,distanceKm:4}).mockResolvedValueOnce({minutes:14,distanceKm:1});const data=await (await POST(request(true))).json();expect(data.matches[0].school.name).toBe('Good primary');expect(route.mock.calls[2][2].transportMode).toBe('walk');});
+ it('does not use straight-line proximity as proof of an acceptable school walk',async()=>{route.mockResolvedValueOnce({minutes:12,distanceKm:3}).mockResolvedValueOnce({minutes:20,distanceKm:4}).mockResolvedValueOnce({minutes:16,distanceKm:1});expect((await (await POST(request(true))).json()).matches).toHaveLength(0);});
+ it('reports unavailable routes instead of inventing matches',async()=>{route.mockRejectedValue(new Error('unavailable'));const data=await (await POST(request())).json();expect(data.matches).toHaveLength(0);expect(data.routeFailures).toBeGreaterThan(0);});
+});

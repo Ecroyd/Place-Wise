@@ -10,7 +10,7 @@ export async function optimise(criteria:SearchCriteria,cells:LocationCell[],rout
   const destinationResults=[];
   let commutePenalty=0,totalJourneyWeight=0;
   for(const destination of criteria.destinations){
-   const trip=await routing.get(cell.h3Index,destination.id,cell,destination,destination.transportMode);
+   const trip=await routing.get(cell.h3Index,destination.id,cell,destination,destination.transportMode,"weekday",destination.departureTime);
    const weekly=trip.minutes*destination.journeysPerWeek*2;
    const over=Math.max(0,trip.minutes-(destination.preferredMinutes??trip.minutes));
    const weight=Math.max(1,destination.journeysPerWeek)*destination.weight/100;
@@ -18,6 +18,7 @@ export async function optimise(criteria:SearchCriteria,cells:LocationCell[],rout
    totalJourneyWeight+=weight;
    if(destination.hardMaximum&&destination.maximumMinutes&&trip.minutes>destination.maximumMinutes)excludedReasons.push(`${destination.label} exceeds the hard ${destination.maximumMinutes}-minute limit`);
    if(destination.minimumMinutes!==undefined&&trip.minutes<destination.minimumMinutes)excludedReasons.push(`${destination.label} is below your ${destination.minimumMinutes}-minute minimum`);
+   if(destination.minimumDistanceKm!==undefined&&trip.distanceKm!==undefined&&trip.distanceKm<destination.minimumDistanceKm)excludedReasons.push(`${destination.label} is below your ${destination.minimumDistanceKm} km minimum distance`);
    if(destination.maximumDistanceKm&&trip.distanceKm&&trip.distanceKm>destination.maximumDistanceKm)excludedReasons.push(`${destination.label} is beyond your ${destination.maximumDistanceKm} km search distance`);
    destinationResults.push({destinationId:destination.id,minutes:trip.minutes,distanceKm:trip.distanceKm,weeklyMinutes:weekly,preferredDelta:trip.minutes-(destination.preferredMinutes??trip.minutes)});
   }

@@ -98,3 +98,22 @@ actions tied to the current ChatGPT user. Leave public content anonymous.
 
 - [vinext Documentation](https://github.com/cloudflare/vinext)
 - [Drizzle D1 Guide](https://orm.drizzle.team/docs/get-started/d1-new)
+
+## Map overlays
+
+The map layer picker loads data around the visible map and labels source, date, coverage and unavailable providers. Changing travel mode refreshes both commute samples and the nearby-area comparisons.
+
+- Schools: Ofsted state-funded school inspection snapshot, 31 August 2026; modern report-card fields and separately dated legacy judgments. Postcode-centre coordinates are approximate. 21,915 schools located; 42 records without resolvable postcodes are omitted. Independent schools and admissions/catchment boundaries are not included. Source: https://www.gov.uk/government/statistical-data-sets/monthly-management-information-ofsteds-school-inspections-outcomes (OGL).
+- To regenerate the bundled school snapshot, run `node scripts/refresh-schools.mjs`. When upgrading to a newer publication, update the source CSV URL and `asOf` date in that script together. It uses public Postcodes.io bulk lookups and preserves missing-coordinate exclusions.
+- Sold prices: HM Land Registry Price Paid linked data, up to 300 sales in the last two years across the nearest 100 postcodes within 1 km of map centre. Pins show sample means at postcode centres; these are historical sales, not valuations or available listings. Budget colours compare each sample mean with the selected budget.
+- Crime: data.police.uk latest available month within 1 mile of map centre. Reports are grouped at anonymised coordinates; counts are not population-adjusted risk. Scottish coverage is limited.
+- Parks, amenities and transport stops: OpenStreetMap via Overpass, at most 350 results per layer/view; completeness varies. Requests are queued to respect provider concurrency limits.
+- Flooding: Environment Agency NaFRA2 river/sea and surface-water WMS layers, England only. Zoom 14 or closer is required for the service's scale threshold; colour legends and official property-risk guidance are linked in the layer controls.
+
+External data requests have timeouts, bounded view sizes, retry controls and a bounded 15-minute server cache. Source outages are shown as errors, never as evidence of zero incidents or zero flood risk. OpenStreetMap attribution/ODbL and Environment Agency/HM Land Registry Crown copyright/OGL attribution are displayed in the app.
+
+## Combined matching and multiple destinations
+
+Add up to three destinations, each with its own mode and minimum/maximum journey time. The existing distance range and departure time are shared. The map defaults to an all-destination commute intersection; its colours represent the highest percentage of an individual time limit, not elapsed minutes. Switch to an individual destination to inspect its normal minute-based heatmap and edit only that destination's mode.
+
+The sidebar checks named area centres against every destination. Find combined matches then searches up to four qualifying sampled areas, collects matching historical sales at nearby postcodes, and tests up to twelve postcode locations against every commute. If enabled, the school requirement uses the selected inspection grade and phase and verifies walking time to up to three nearest qualifying schools. Green check pins and result cards show verified sample matches. Postcode locations are approximate; this is not an exhaustive property search, a current availability feed, or an admissions eligibility check. Provider failures are counted and disclosed. Changing criteria clears outdated combined-match pins and aborts the active client request.
