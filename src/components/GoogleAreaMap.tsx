@@ -155,7 +155,7 @@ export function GoogleAreaMap({ destinations, selectedArea, onPointSelected, bud
             setJourney(sample?.itinerary ?? []);
             setSelectedMode(sample?.selectedMode);
             popup?.remove();
-            const compact = map.getContainer().clientWidth <= 900;
+            const compact = map!.getContainer().clientWidth <= 900;
             if (!compact) {
               popup = new maplibre.Popup().setLngLat(event.lngLat)
                 .setText(sample?.minutes == null ? "Journey time not available at this sample point." : `${sample.minutes} ${allDestinations?"% of the tightest commute limit":"min"}${sample.selectedMode ? ` by ${modeLabel(sample.selectedMode).toLowerCase()}` : ""} to ${destination.label}${withinTravelTime(sample.minutes, destination) ? " · within your travel-time range" : " · outside your travel-time range"}.`)
