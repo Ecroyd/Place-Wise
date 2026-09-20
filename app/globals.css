@@ -126,7 +126,7 @@ button { cursor:pointer; }
   .result-head{padding:14px 16px 10px}
   .result-head h1{font-size:26px}
   .heat-layout{padding:0 10px 16px;gap:12px}
-  .heat-map{min-height:min(62vh,560px);border-radius:18px}
+  .heat-map{min-height:min(68vh,620px);border-radius:18px}
   .heat-map.google .maplibregl-ctrl-top-right{top:8px;right:8px}
   .heat-map.google .maplibregl-ctrl-group{margin:0}
   .commute-controls,.map-layers,.heat-callout{width:auto;max-width:calc(100% - 24px);padding:0;border-radius:999px;overflow:hidden;background:#fffdf8f5;backdrop-filter:blur(10px)}
@@ -134,13 +134,13 @@ button { cursor:pointer; }
   .commute-controls>summary{display:grid;gap:1px;padding:10px 14px;font-size:12px;font-weight:800}
   .commute-controls .map-chip-label{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:#60716b}
   .commute-controls .map-chip-meta{font-size:12px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--ink)}
-  .commute-controls[open]{border-radius:16px;width:min(300px,calc(100% - 20px));max-width:calc(100% - 20px);max-height:min(55vh,420px);overflow:auto;z-index:8}
+  .commute-controls[open]{border-radius:16px;width:min(300px,calc(100% - 20px));max-width:calc(100% - 20px);max-height:min(48vh,340px);overflow:auto;z-index:8}
   .commute-controls[open]>summary{border-bottom:1px solid #18332c14;border-radius:0}
   .commute-controls-body{padding:10px 12px 12px}
   .map-layers{top:10px;right:52px;left:auto;width:auto;min-width:0;z-index:6}
   .map-layers summary{padding:10px 14px;white-space:nowrap}
   .map-layers summary span{float:none;margin-left:8px}
-  .map-layers[open]{width:min(300px,calc(100% - 20px));border-radius:16px;max-height:min(55vh,420px);overflow:auto;z-index:8;right:10px}
+  .map-layers[open]{width:min(300px,calc(100% - 20px));border-radius:16px;max-height:min(48vh,340px);overflow:auto;z-index:8;right:10px}
   .map-layers[open] summary{border-bottom:1px solid #18332c14}
   .layer-options{max-height:none}
   .heat-callout{left:10px;right:10px;bottom:10px;width:auto;max-width:none;z-index:5;max-height:none;box-shadow:0 8px 24px #17312928}
@@ -163,7 +163,8 @@ button { cursor:pointer; }
   .journey-steps{max-height:120px}
 }
 @media(max-width:600px){
-  .heat-map{min-height:min(58vh,480px)}
+  .heat-map{min-height:min(64vh,540px)}
+  .result-head h1{font-size:22px}
   .commute-controls{max-width:min(190px,calc(100% - 108px))}
   .map-layers{right:48px}
   .commute-legend.heat-legend{bottom:10px;right:10px}
