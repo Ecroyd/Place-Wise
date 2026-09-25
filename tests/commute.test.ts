@@ -1,5 +1,5 @@
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { latLngToCell } from "h3-js";
+import { latLngToCell, getResolution, cellToParent, cellArea, UNITS } from "h3-js";
 import type { DestinationConstraint } from "../src/types/domain";
 import { commuteGrid, sampleOrigin, withinTravelTime, commuteColour, distanceKm, samplingRadiusKm, gridCellAt } from "../src/lib/routing/commute";
 const { route } = vi.hoisted(() => ({ route: vi.fn() }));
@@ -13,7 +13,7 @@ describe("travel-time areas", () => {
   it("samples across borough boundaries and supports destinations outside Manchester", () => {
     const grid = commuteGrid(destination);
     expect(grid.features.length).toBeGreaterThan(50);
-    expect(grid.features.length).toBeLessThanOrEqual(700);
+    expect(grid.features.length).toBeLessThanOrEqual(4900);
     expect(grid.features.some(feature => sampleOrigin(feature.properties.id).latitude > 53.75)).toBe(true);
     const london = { ...destination, latitude: 51.5, longitude: -0.1 };
     const londonGrid = commuteGrid(london);
@@ -23,6 +23,21 @@ describe("travel-time areas", () => {
       const ring = feature.geometry.coordinates[0];
       expect(ring[0]).toEqual(ring.at(-1));
     }
+  });
+  it("uses smaller independently routed cells throughout the sampling area", async () => {
+    const grid = commuteGrid(destination);
+    // A 35-minute drive formerly used resolution 5 outside the centre and 6 inside.
+    expect(Math.min(...grid.features.map(feature => getResolution(feature.properties.id)))).toBe(6);
+    expect(getResolution(gridCellAt(grid, destination)!.properties.id)).toBe(7);
+    const cell = grid.features[1].properties.id;
+    const parent = cellToParent(cell, getResolution(cell) - 1);
+    expect(cellArea(cell, UNITS.km2)).toBeLessThan(cellArea(parent, UNITS.km2) / 6);
+    route.mockResolvedValue({ minutes: 13 });
+    const result = await POST(request({ destination, cells: [cell] }));
+    expect(result.status).toBe(200);
+    expect(route).toHaveBeenCalledWith(sampleOrigin(cell), destination, { transportMode: "drive" });
+    expect((await POST(request({ destination, cells: [parent] }))).status).toBe(400);
+    expect(commuteGrid({ ...destination, transportMode: "transit" }).features.length).toBeLessThanOrEqual(7000);
   });
   it("changes coverage with travel time and transport mode", () => {
     expect(samplingRadiusKm({ ...destination, maximumMinutes: 60 })).toBeGreaterThan(samplingRadiusKm(destination));

@@ -86,7 +86,11 @@ function buildCommuteGrid(destination: DestinationConstraint): FeatureCollection
       cells.delete(id); cellToChildren(id,resolution+1).forEach(child=>cells.add(child));
     }
   }
-  return { type: "FeatureCollection", features: [...cells]
+  // Route each finer cell independently: merely drawing smaller polygons with the
+  // parent's journey time would preserve the same misleading coverage.
+  // One extra H3 level gives roughly 1/7 the area and bounds the grid at 7,000.
+  const fineCells = [...cells].flatMap(id => cellToChildren(id, getResolution(id) + 1));
+  return { type: "FeatureCollection", features: fineCells
     .sort((a, b) => distanceKm(sampleOrigin(a), destination) - distanceKm(sampleOrigin(b), destination))
     .map(id => ({ type: "Feature", properties: { id, minutes: null }, geometry: { type: "Polygon", coordinates: [cellToBoundary(id, true)] } })) };
 }
