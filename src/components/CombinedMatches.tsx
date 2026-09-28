@@ -1,9 +1,10 @@
 "use client";
+import {useViewField} from './SearchView';
 import {useEffect,useRef,useState} from 'react';
 import type {Coordinates,DestinationConstraint} from '@/src/types/domain';
-import type {CombinedMatch,CombinedSchool} from '@/src/lib/data/combined';
+import type {CombinedMatch} from '@/src/lib/data/combined';
 export function CombinedMatches({destinations,center,minimumPrice,maximumPrice,onMatches,onSelect}:{destinations:DestinationConstraint[];center?:Coordinates;minimumPrice:number;maximumPrice:number;onMatches:(matches:CombinedMatch[])=>void;onSelect:(match:CombinedMatch)=>void}){
- const [school,setSchool]=useState<CombinedSchool>({enabled:false,phase:'Primary',rating:'all',reportArea:'Achievement',maximumWalkMinutes:15});
+ const [school,setSchool]=useViewField('school');
  const [result,setResult]=useState<{matches:CombinedMatch[];note:string;priceFailures:number;routeFailures:number}>();const [loading,setLoading]=useState(false);const [error,setError]=useState<string>();const controller=useRef<AbortController|null>(null);
  const identity=JSON.stringify({destinations,center,minimumPrice,maximumPrice,school});
  useEffect(()=>{controller.current?.abort();onMatches([]);return()=>controller.current?.abort();},[identity,onMatches]);

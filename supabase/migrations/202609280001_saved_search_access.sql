@@ -1,0 +1,10 @@
+begin;
+grant usage on schema placewise to authenticated;
+grant select, insert, update on placewise.profiles to authenticated;
+grant select, insert, update, delete on placewise.saved_searches to authenticated;
+alter table placewise.profiles enable row level security;
+alter table placewise.saved_searches enable row level security;
+alter policy "Users manage own profile" on placewise.profiles to authenticated using(auth.uid()=id) with check(auth.uid()=id);
+alter policy "Users manage own searches" on placewise.saved_searches to authenticated using(auth.uid()=user_id) with check(auth.uid()=user_id);
+create index if not exists saved_searches_user_created_idx on placewise.saved_searches(user_id,created_at desc);
+commit;

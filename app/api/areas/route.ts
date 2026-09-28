@@ -1,3 +1,5 @@
+import {sampleLimit} from '@/src/lib/routing/sampling';
+import {apiLimit,paidRequestBudget} from '@/src/lib/server/budget';
 import { z } from "zod";
 import { coordinatesSchema, destinationSchema } from "@/src/schemas/criteria";
 import { listLocationCells } from "@/src/lib/data/locationRepository";
@@ -16,6 +18,7 @@ async function reverse(point: { latitude: number; longitude: number }): Promise<
   const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
   url.searchParams.set("latlng", key); url.searchParams.set("key", apiKey);
   url.searchParams.set("result_type", "locality|postal_town|sublocality|neighborhood");
+  await paidRequestBudget();
   const response = await fetch(url, { signal: AbortSignal.timeout(12000) });
   if (!response.ok) throw new Error("Area lookup unavailable");
   const payload = await response.json() as { status: string; results?: Geocoded[] };
@@ -36,6 +39,7 @@ async function mapLimited<T, R>(items: T[], action: (item: T) => Promise<R>): Pr
   return results;
 }
 export async function POST(request: Request) {
+ const limited=await apiLimit(request,"areas",60);if(limited)return limited;
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Invalid nearby-area search" }, { status: 400 });
   const { destination, budget } = parsed.data;
@@ -44,13 +48,13 @@ export async function POST(request: Request) {
     const radius = discoveryRadius(destination, !!parsed.data.center);
     let lookupFailures = 0;
     const [named, prices] = await Promise.all([
-      mapLimited(discoveryPoints(center,radius), async point => { try { return await reverse(point); } catch { lookupFailures++; return null; } }),
+      mapLimited(discoveryPoints(center,radius).filter((_,index)=>index===0||index%3===1), async point => { try { return await reverse(point); } catch { lookupFailures++; return null; } }),
       listLocationCells().catch(() => []),
     ]);
     if (lookupFailures === named.length) throw new Error("Nearby area lookup is temporarily unavailable");
     const areas = uniqueNearbyAreas(named.filter((area): area is NamedArea => area !== null), center, radius);
     const destinations=parsed.data.destinations??[destination];
-    const results: NearbyArea[] = await mapLimited(areas, async area => {
+    const results: NearbyArea[] = await mapLimited(areas.slice(0,Math.min(8,sampleLimit(destinations,32))), async area => {
       const assessments=await Promise.all(destinations.map(async destination=>{
       const provider=getLiveRoutingProvider(destination.transportMode);
       if (request.signal.aborted) return areaAssessment(area,destination,null,prices,budget);

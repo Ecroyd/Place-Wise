@@ -1,3 +1,4 @@
+import {paidRequestBudget} from '@/src/lib/server/budget';
 import type { Coordinates } from "@/src/types/domain";
 import type { JourneyStep } from "@/src/types/domain";
 import type { RoutingOptions, RoutingProvider, TravelTimeResult } from "./provider";
@@ -84,6 +85,7 @@ export class GoogleRoutesProvider implements RoutingProvider {
         body.computeAlternativeRoutes = true;
         // Leaving transitPreferences unrestricted permits buses, rail, trams and transfers.
       }
+      await paidRequestBudget();
       const response = await fetch("https://routes.googleapis.com/directions/v2:computeRoutes", {
         method: "POST", signal: AbortSignal.timeout(20000),
         headers: { "Content-Type": "application/json", "X-Goog-Api-Key": this.apiKey!,

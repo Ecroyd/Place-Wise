@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import {useViewField} from './SearchView';
 import { CombinedMatches } from "./CombinedMatches";
 import type { CombinedMatch } from "@/src/lib/data/combined";
 import { GoogleAreaMap } from "./GoogleAreaMap";
@@ -7,11 +8,11 @@ import type { Coordinates, DestinationConstraint, TransportMode } from "@/src/ty
 import type { NearbyArea } from "@/src/lib/data/nearby";
 
 const money = (n:number) => new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP",maximumFractionDigits:0}).format(n);
-export function AreaResults({ destinations, budget, minimumBudget }: { destinations: DestinationConstraint[]; budget: number; minimumBudget:number }) {
+export function AreaResults({ destinations, budget, minimumBudget,onDestinationsChange }: {onDestinationsChange?:(destinations:DestinationConstraint[])=>void; destinations: DestinationConstraint[]; budget: number; minimumBudget:number }) {
   const [effectiveDestinations,setEffectiveDestinations] = useState(destinations);
   const [combinedMatches,setCombinedMatches] = useState<CombinedMatch[]>([]);
-  const changeMode = (mode:TransportMode,index:number) => { setEffectiveDestinations(old=>old.map((d,i)=>i===index?{...d,transportMode:mode,departureTime:(mode==='any'||mode==='transit'||mode==='mixed')?(d.departureTime??new Date().toISOString()):undefined}:d)); setFocused(undefined); };
-  const [center,setCenter] = useState<Coordinates>();
+  const changeMode = (mode:TransportMode,index:number) => { const next=effectiveDestinations.map((d,i)=>i===index?{...d,transportMode:mode,departureTime:(mode==='any'||mode==='transit'||mode==='mixed')?(d.departureTime??new Date().toISOString()):undefined}:d);setEffectiveDestinations(next);onDestinationsChange?.(next); setFocused(undefined); };
+  const [center,setCenter] = useViewField('searchPoint');
   const [areas,setAreas] = useState<NearbyArea[]>([]);
   const [centerLabel,setCenterLabel] = useState(destinations[0]?.label ?? "your destination");
   const [focused,setFocused] = useState<NearbyArea>();
@@ -38,7 +39,7 @@ export function AreaResults({ destinations, budget, minimumBudget }: { destinati
   return <div className="heat-layout">
     <section className="heat-map google"><GoogleAreaMap destinations={effectiveDestinations} budget={budget} minimumBudget={minimumBudget} onModeChange={changeMode} combinedMatches={combinedMatches} selectedArea={focused} onPointSelected={selectPoint}/></section>
     <aside className="area-list" aria-label="Nearby areas"><CombinedMatches destinations={effectiveDestinations} center={center} minimumPrice={minimumBudget} maximumPrice={budget} onMatches={setCombinedMatches} onSelect={match=>setFocused({...match,address:match.name,minutes:match.journeys[0]?.minutes??null,withinLimits:true,reasons:[]})}/>
-      <div className="area-intro"><b>Areas near {centerLabel}</b><span>Travel fit, then journey time.</span></div>
+      <div className="area-intro"><b>Areas near {centerLabel}</b><span>Up to 8 sampled towns, ordered by travel fit.</span></div>
       <p className="demo-note">Click the map to explore nearby areas, or choose an area to locate it. House prices: {money(minimumBudget)}–{money(budget)}. Sold-price pins are filtered to this range; area averages below are comparisons.</p>
       {center&&<button className="btn light" onClick={()=>{setCenter(undefined);setFocused(undefined)}}>Back to destination areas</button>}
       {loading&&<p className="demo-note" role="status">Finding nearby towns and checking journeys…</p>}

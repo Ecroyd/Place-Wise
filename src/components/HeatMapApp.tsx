@@ -1,5 +1,9 @@
 "use client";
 import {useState} from "react";
+import {SearchViewProvider,useSearchView} from './SearchView';
+import {defaultView} from '@/src/lib/account/view';
+import {AccountMenu} from './AccountMenu';
+import type {SavedCriteria} from '@/src/lib/account/searches';
 import {AreaResults} from "./AreaResults";
 import {RangeSlider} from "./RangeSlider";
 import type {DestinationConstraint,OptimisationMode,SearchCriteria,TransportMode} from "@/src/types/domain";
@@ -7,7 +11,10 @@ import type {DestinationConstraint,OptimisationMode,SearchCriteria,TransportMode
 const prompt="I work in Middleton five days a week. We have a £500,000 budget and I don't want more than about 35 minutes to work.";
 const AI_SEARCH_ENABLED=false;
 
-export function HeatMapApp(){
+export function HeatMapApp(){return <SearchViewProvider><HeatMapContent/></SearchViewProvider>}
+function HeatMapContent(){
+ const {view,setView}=useSearchView();
+ const [searchRevision,setSearchRevision]=useState(0);
  const [mode,setMode]=useState<OptimisationMode>("live");
  const [inputMode,setInputMode]=useState<"ai"|"manual">("manual");
  const [text,setText]=useState(prompt);
@@ -26,6 +33,16 @@ export function HeatMapApp(){
  const [departureTime,setDepartureTime]=useState("");
  const [transport,setTransport]=useState<TransportMode>("drive");
 
+ function loadSaved(saved:SavedCriteria){
+  setView(saved.view??defaultView());setSearchRevision(n=>n+1);
+  const first=saved.destinations[0];
+  setMode(saved.mode);setMinimumBudget(saved.minimumBudget);setBudget(saved.budget);
+  setDestination(first.label);setTransport(first.transportMode);setMinimumTravel(first.minimumMinutes??0);setMaximumTravel(first.maximumMinutes??first.preferredMinutes??60);
+  setDistance(first.maximumDistanceKm??40);setMinimumDistance(first.minimumDistanceKm??0);setJourneys(first.journeysPerWeek);setDepartureTime(first.departureTime?new Date(new Date(first.departureTime).getTime()-new Date(first.departureTime).getTimezoneOffset()*60000).toISOString().slice(0,16):'');
+  setAdditional(saved.destinations.slice(1).map(d=>({address:d.label,transportMode:d.transportMode,minimumMinutes:d.minimumMinutes??0,maximumMinutes:d.maximumMinutes??d.preferredMinutes??60})));
+  setDestinations(saved.destinations);
+ }
+ const nav=<Nav criteria={destinations.length?{version:1,mode,destinations,minimumBudget,budget,view}:undefined} onLoad={loadSaved}/>;
  async function run(){
   setLoading(true);setError(undefined);
   try{
@@ -52,13 +69,13 @@ export function HeatMapApp(){
     parsed.lifestyle=[];
    }
    parsed.destinations=parsed.destinations.map(item=>item.transportMode==="transit"||item.transportMode==="mixed"||item.transportMode==="any"?{...item,departureTime:departureTime?new Date(departureTime).toISOString():new Date().toISOString()}:item);
-   setDestinations(parsed.destinations);
+   setView(defaultView());setSearchRevision(n=>n+1);setDestinations(parsed.destinations);
   }catch(cause){setError(cause instanceof Error?cause.message:"Optimisation failed")}
   finally{setLoading(false)}
  }
 
- if(destinations.length)return <Results destinations={destinations} budget={budget} minimumBudget={minimumBudget} edit={()=>setDestinations([])}/>;
- return <main className="shell"><Nav/><section className="hero">
+ if(destinations.length)return <Results key={searchRevision} destinations={destinations} budget={budget} minimumBudget={minimumBudget} edit={()=>setDestinations([])} nav={nav} onDestinationsChange={setDestinations}/>;
+ return <main className="shell">{nav}<section className="hero">
   <span className="eyebrow">Area recommendations, made personal</span>
   <h1 className="serif">Where does your life<br/><em>fit best?</em></h1>
   <p className="sub">Explore a commute-time heatmap alongside area recommendations and historical prices.</p>
@@ -83,13 +100,13 @@ export function HeatMapApp(){
  </section><section className="proof"><div><b>Live road routing</b>Google-calculated journey durations, cached for repeat searches.</div><div><b>Official price history</b>June 2026 UK HPI averages from HM Land Registry.</div><div><b>Transparent scoring</b>Combine commutes, recorded sale prices and school preferences.</div></section></main>;
 }
 
-function Results({destinations,budget,minimumBudget,edit}:{destinations:DestinationConstraint[];budget:number;minimumBudget:number;edit:()=>void}){
- return <main className="workspace"><Nav/>
+function Results({destinations,budget,minimumBudget,edit,nav,onDestinationsChange}:{destinations:DestinationConstraint[];budget:number;minimumBudget:number;edit:()=>void;nav:React.ReactNode;onDestinationsChange:(destinations:DestinationConstraint[])=>void}){
+ return <main className="workspace">{nav}
   <section className="result-head"><div><span className="eyebrow">Commute-time heatmap</span><h1 className="serif">Best areas for your life</h1></div><button className="btn light" onClick={edit}>Edit priorities</button></section>
-  <AreaResults destinations={destinations} budget={budget} minimumBudget={minimumBudget}/>
+  <AreaResults key={JSON.stringify(destinations)} onDestinationsChange={onDestinationsChange} destinations={destinations} budget={budget} minimumBudget={minimumBudget}/>
   <footer className="demo-note">Where shown, historical price averages use HM Land Registry data © Crown copyright and database right 2021, licensed under the Open Government Licence v3.0. Map © OpenStreetMap contributors.</footer>
  </main>
 }
 function Field({id,label,children}:{id:string;label:string;children:React.ReactNode}){return <div className="field"><label htmlFor={id}>{label}</label>{children}</div>}
 function Slider({id,label,value,min,max,suffix,set}:{id:string;label:string;value:number;min:number;max:number;suffix:string;set:(value:number)=>void}){return <div className="range"><div className="range-head"><label htmlFor={id}>{label}</label><b>{value}{suffix}</b></div><input id={id} aria-label={label} type="range" min={min} max={max} value={value} onChange={event=>set(Number(event.target.value))}/></div>}
-function Nav(){return <nav className="nav"><div className="brand"><span className="brandmark"/>placewise</div><div className="nav-actions"><button className="btn">How it works</button><button className="btn">My areas</button><button className="btn primary">Sign in</button></div></nav>}
+function Nav({criteria,onLoad}:{criteria?:SavedCriteria;onLoad:(criteria:SavedCriteria)=>void}){return <nav className="nav"><div className="brand"><span className="brandmark"/>placewise</div><AccountMenu criteria={criteria} onLoad={onLoad}/></nav>}

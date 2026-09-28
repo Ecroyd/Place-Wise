@@ -1,8 +1,10 @@
+import {apiLimit} from '@/src/lib/server/budget';
+import { allowedCommuteCell } from "@/src/lib/routing/detail";
 import {routeFits} from "@/src/lib/data/combined";
 import { z } from "zod";
 import { isValidCell } from "h3-js";
 import { destinationSchema } from "@/src/schemas/criteria";
-import { commuteGrid, sampleOrigin, type CommuteSample } from "@/src/lib/routing/commute";
+import { commuteGrid, sharedCommuteGrid, sampleOrigin, type CommuteSample } from "@/src/lib/routing/commute";
 import { getLiveRoutingProvider } from "@/src/lib/routing/provider";
 
 const schema = z.object({ destination: destinationSchema, destinations:z.array(destinationSchema).min(1).max(3).optional(), cells: z.array(z.string().refine(isValidCell, "Invalid heatmap cell")).min(1).max(16) });
@@ -10,11 +12,12 @@ const schema = z.object({ destination: destinationSchema, destinations:z.array(d
 // Short-lived, bounded cache: traffic-aware estimates should not persist for months.
 const cache = new Map<string, { sample: CommuteSample; expires: number }>();
 export async function POST(request: Request) {
+ const limited=await apiLimit(request,"commute",600);if(limited)return limited;
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Invalid commute heatmap request" }, { status: 400 });
   const { destination, cells } = parsed.data;
-  const allowed = new Set(commuteGrid(destination).features.map(feature => feature.properties.id));
-  if (cells.some(id => !allowed.has(id))) return Response.json({ error: "Cell is outside this destination’s sampling area" }, { status: 400 });
+  const allowed = new Set((parsed.data.destinations?sharedCommuteGrid(parsed.data.destinations):commuteGrid(destination)).features.map(feature => feature.properties.id));
+  if (cells.some(id => !allowedCommuteCell(id, allowed))) return Response.json({ error: "Cell is outside this destination’s sampling area" }, { status: 400 });
   try {
     const provider = getLiveRoutingProvider(destination.transportMode);
     if (provider.constructor.name === "OsrmRoutingProvider" && destination.transportMode !== "drive" && destination.transportMode !== "mixed") {
@@ -24,7 +27,7 @@ export async function POST(request: Request) {
     let next = 0;
     let providerError: string | undefined;
     await Promise.all(Array.from({ length: Math.min(4, cells.length) }, async () => {
-      while (next < cells.length) {
+      while (next < cells.length && !request.signal.aborted) {
         const id = cells[next++];
         const key = `${provider.constructor.name}/${id}/${destination.latitude}/${destination.longitude}/${destination.transportMode}/${destination.departureTime ?? "now"}/multimodal-v3`;
         const hit = parsed.data.destinations?undefined:cache.get(key);
@@ -40,7 +43,7 @@ export async function POST(request: Request) {
               fraction=Math.max(fraction,route.minutes/(target.maximumMinutes??target.preferredMinutes??60));
               itinerary.push({mode:target.label,minutes:route.minutes});
             }
-            samples.push({id,minutes:matches?Math.min(100,Math.round(fraction*100)):null,itinerary});continue;
+            samples.push({id,minutes:matches?Math.min(100,Math.round(fraction*100)):null,...(!matches?{outcome:"outside" as const}:{}),itinerary});continue;
           }
           const route = await provider.getTravelTime(sampleOrigin(id), destination, { transportMode: destination.transportMode, departureTime: destination.departureTime });
           if (!Number.isFinite(route.minutes) || route.minutes < 0) throw new Error("Invalid route duration");
@@ -48,7 +51,7 @@ export async function POST(request: Request) {
           const sample = { id, minutes: route.minutes, ...(route.selectedMode ? { selectedMode: route.selectedMode } : {}), ...(route.itinerary?.length ? { itinerary: route.itinerary } : {}) };
           cache.set(key, { sample, expires: Date.now() + 5 * 60 * 1000 });
           samples.push(sample);
-        } catch (error) { if (error instanceof Error && error.name === "RoutingUnavailableError") providerError = error.message; samples.push({ id, minutes: null }); }
+        } catch (error) { if (error instanceof Error && error.name === "RoutingUnavailableError") providerError = error.message; samples.push({ id, minutes: null, ...(parsed.data.destinations?{outcome:"unavailable" as const}:{}) }); }
       }
     }));
     if (providerError && samples.every(sample => sample.minutes === null)) return Response.json({ error: providerError }, { status: 502 });

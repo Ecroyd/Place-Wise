@@ -1,3 +1,4 @@
+import {SharedRoutingProvider} from './shared';
 import { GoogleRoutesProvider } from "./google";
 export { GoogleRoutesProvider } from "./google";
 import type { Coordinates, TransportMode, JourneyStep } from "@/src/types/domain";
@@ -27,7 +28,7 @@ export class OsrmRoutingProvider implements RoutingProvider {
 export function getLiveRoutingProvider(mode?:TransportMode):RoutingProvider {
  const key=process.env.GOOGLE_MAPS_API_KEY;
  if(mode && mode!=="drive" && (process.env.ROUTING_PROVIDER==="osrm" || !key?.startsWith("AIza"))) throw new Error("Public transport, walking and cycling require Google routing; driving routes cannot be substituted.");
- return process.env.ROUTING_PROVIDER!=="osrm"&&key?.startsWith("AIza")?new GoogleRoutesProvider(key):new OsrmRoutingProvider();
+ return new SharedRoutingProvider(process.env.ROUTING_PROVIDER!=="osrm"&&key?.startsWith("AIza")?new GoogleRoutesProvider(key):new OsrmRoutingProvider());
 }
 export class ValhallaRoutingProvider implements RoutingProvider {
  constructor(private endpoint:string){}

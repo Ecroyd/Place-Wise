@@ -7,7 +7,7 @@ export const COMMUTE_STOPS = [
   { minutes: 30, colour: "#efce62" }, { minutes: 45, colour: "#ee9456" },
   { minutes: 60, colour: "#cb4b56" },
 ] as const;
-export type CommuteSample = { id: string; minutes: number | null; itinerary?: JourneyStep[]; selectedMode?: TransportMode };
+export type CommuteSample = { outcome?: "outside" | "unavailable"; id: string; minutes: number | null; itinerary?: JourneyStep[]; selectedMode?: TransportMode };
 export type CommuteProperties = { id: string; minutes: number | null };
 
 export function commuteLimits(destination: DestinationConstraint) {
@@ -109,5 +109,26 @@ export function commuteGrid(destination: DestinationConstraint) {
   const grid = buildCommuteGrid(destination);
   if (gridCache.size >= 20) gridCache.delete(gridCache.keys().next().value!);
   gridCache.set(key, grid);
+  return grid;
+}
+// Restrict shared searches to plausible intersections before making route calls.
+// Straight-line distance is only a rejection/ordering aid; it never supplies a
+// travel time or paints a cell. Allow 1 km for routing endpoint snapping.
+const sharedGridCache = new Map<string, ReturnType<typeof buildCommuteGrid>>();
+export function sharedCommuteGrid(destinations: DestinationConstraint[]) {
+  const key = JSON.stringify(destinations.map(d => [d.latitude,d.longitude,d.transportMode,commuteLimits(d).maximum,d.maximumDistanceKm]));
+  const hit = sharedGridCache.get(key);
+  if (hit) return hit;
+  if (!destinations.length) return {type:'FeatureCollection' as const,features:[]};
+  const anchor = [...destinations].sort((a,b)=>samplingRadiusKm(a)-samplingRadiusKm(b))[0];
+  const envelopes = destinations.map(destination=>({destination,radius:Math.min(samplingRadiusKm(destination),(destination.maximumDistanceKm??Infinity)+1)}));
+  const candidates = commuteGrid(anchor).features.map(feature=>{
+    const origin=sampleOrigin(feature.properties.id);
+    const fractions=envelopes.map(({destination,radius})=>distanceKm(origin,destination)/radius);
+    return {feature,score:Math.max(...fractions)};
+  }).filter(candidate=>candidate.score<=1).sort((a,b)=>a.score-b.score);
+  const grid = {type:'FeatureCollection' as const,features:candidates.map(candidate=>candidate.feature)};
+  if(sharedGridCache.size>=20)sharedGridCache.delete(sharedGridCache.keys().next().value!);
+  sharedGridCache.set(key,grid);
   return grid;
 }
