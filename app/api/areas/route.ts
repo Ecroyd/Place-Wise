@@ -4,15 +4,23 @@ import { z } from "zod";
 import { coordinatesSchema, destinationSchema } from "@/src/schemas/criteria";
 import { listLocationCells } from "@/src/lib/data/locationRepository";
 import { getLiveRoutingProvider } from "@/src/lib/routing/provider";
+import { routeMany } from "@/src/lib/routing/batch";
+import { readCached, writeCached } from "@/src/lib/server/responseCache";
 import { areaAssessment, discoveryPoints, discoveryRadius, uniqueNearbyAreas, type NamedArea, type NearbyArea } from "@/src/lib/data/nearby";
 
 const schema = z.object({ destination: destinationSchema, destinations:z.array(destinationSchema).min(1).max(3).optional(), center: coordinatesSchema.optional(), budget: z.number().positive().optional() });
 type Geocoded = { place_id: string; formatted_address: string; types: string[]; address_components: { long_name: string; types: string[] }[]; geometry: { location: { lat: number; lng: number } } };
+// Google permits caching geocoding results (place IDs, coordinates) for up to 30 days.
+const REVERSE_TTL_MS = 30 * 86400000;
 const names = new Map<string, { area: NamedArea | null; expires: number }>();
 async function reverse(point: { latitude: number; longitude: number }): Promise<NamedArea | null> {
-  const key = `${point.latitude.toFixed(4)},${point.longitude.toFixed(4)}`;
+  // ~110 m precision: nearby searches share lookups for the same neighbourhood.
+  const key = `${point.latitude.toFixed(3)},${point.longitude.toFixed(3)}`;
   const cached = names.get(key);
   if (cached && cached.expires > Date.now()) return cached.area;
+  const cacheKey = "reverse-geocode:v1:" + key;
+  const stored = (await readCached<NamedArea | null>([cacheKey]).catch(() => new Map())).get(cacheKey);
+  if (stored) { names.set(key, { area: stored.payload, expires: stored.expires }); return stored.payload; }
   const apiKey = process.env.GOOGLE_MAPS_API_KEY;
   if (!apiKey) throw new Error("Area lookup is not configured");
   const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
@@ -28,7 +36,9 @@ async function reverse(point: { latitude: number; longitude: number }): Promise<
   const area = result && component ? { id: result.place_id, name: component.long_name, address: result.formatted_address,
     latitude: result.geometry.location.lat, longitude: result.geometry.location.lng } : null;
   if (names.size >= 500) names.delete(names.keys().next().value!);
-  names.set(key, { area, expires: Date.now() + 86400000 });
+  const expires = Date.now() + REVERSE_TTL_MS;
+  names.set(key, { area, expires });
+  await writeCached([{ key: cacheKey, payload: area, expires }]).catch(() => undefined);
   return area;
 }
 async function mapLimited<T, R>(items: T[], action: (item: T) => Promise<R>): Promise<R[]> {
@@ -54,15 +64,14 @@ export async function POST(request: Request) {
     if (lookupFailures === named.length) throw new Error("Nearby area lookup is temporarily unavailable");
     const areas = uniqueNearbyAreas(named.filter((area): area is NamedArea => area !== null), center, radius);
     const destinations=parsed.data.destinations??[destination];
-    const results: NearbyArea[] = await mapLimited(areas.slice(0,Math.min(8,sampleLimit(destinations,32))), async area => {
-      const assessments=await Promise.all(destinations.map(async destination=>{
-      const provider=getLiveRoutingProvider(destination.transportMode);
-      if (request.signal.aborted) return areaAssessment(area,destination,null,prices,budget);
-      try {
-        const route = await provider.getTravelTime(area,destination,{ transportMode: destination.transportMode, departureTime: destination.departureTime });
-        return areaAssessment(area,destination,route,prices,budget);
-      } catch { return areaAssessment(area,destination,null,prices,budget); }
-      }));
+    const checked = areas.slice(0,Math.min(8,sampleLimit(destinations,32)));
+    // One batched lookup per destination instead of one request per area.
+    const routedByDestination = await Promise.all(destinations.map(destination => request.signal.aborted ? checked.map(() => null)
+      : Promise.resolve().then(() => routeMany(getLiveRoutingProvider(destination.transportMode), checked, destination, { transportMode: destination.transportMode, departureTime: destination.departureTime }))
+        .then(results => results.map(result => result.status === "fulfilled" ? result.value : null))
+        .catch(() => checked.map(() => null))));
+    const results: NearbyArea[] = checked.map((area, index) => {
+      const assessments = destinations.map((destination, d) => areaAssessment(area, destination, routedByDestination[d][index], prices, budget));
       return {...assessments[0],withinLimits:assessments.every(a=>a.withinLimits),reasons:assessments.flatMap((a,i)=>a.reasons.map(reason=>destinations[i].label+': '+reason)),destinationJourneys:assessments.map((a,i)=>({label:destinations[i].label,minutes:a.minutes,mode:destinations[i].transportMode}))};
     });
     results.sort((a,b) => Number(b.withinLimits)-Number(a.withinLimits) || (a.minutes ?? Infinity)-(b.minutes ?? Infinity));
