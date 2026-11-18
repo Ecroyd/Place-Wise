@@ -26,7 +26,11 @@ export async function apiLimit(request:Request,kind:string,maximum:number){
  return Response.json({error:'Too many requests. Please wait five minutes before retrying.'},{status:429,headers:{'Retry-After':'300'}});
  }catch(error){return Response.json({error:error instanceof Error?error.message:'Request protection unavailable'},{status:503,headers:{'Retry-After':'60'}});}
 }
-export async function paidRequestBudget(){
+// Google bills Route Matrix per element, so callers pass the element count.
+export async function paidRequestBudget(count=1){
+ await Promise.all(Array.from({length:Math.max(1,count)},()=>consumePaidRequest()));
+}
+async function consumePaidRequest(){
  const configured=Number(process.env.GOOGLE_REQUESTS_PER_DAY??500);
  const maximum=Number.isSafeInteger(configured)&&configured>0?configured:500;
  const monthValue=Number(process.env.GOOGLE_REQUESTS_PER_MONTH??2000);
