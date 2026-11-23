@@ -18,20 +18,46 @@ describe('low cost route sampling',()=>{
  });
 });
 
-import {overviewDisplayGrid,displaySampleAt} from '../src/lib/routing/sampling';
+import {overviewDisplayGrid,displaySampleAt,overviewBudget,cellsPerRequest} from '../src/lib/routing/sampling';
 import {commuteGrid as gridFor} from '../src/lib/routing/commute';
 import {getHexagonAreaAvg,getResolution,UNITS,cellToLatLng} from 'h3-js';
+const middleton={id:'d',label:'Middleton',purpose:'Work',latitude:53.55,longitude:-2.2,transportMode:'drive' as const,journeysPerWeek:5,minimumMinutes:10,maximumMinutes:60,preferredMinutes:30,weight:100,hardMaximum:true};
+describe('free routing budget',()=>{
+ it('samples four times as densely when every journey uses free open routing',()=>{
+  expect(overviewBudget([middleton])).toBe(384);expect(cellsPerRequest([middleton])).toBe(48);
+  expect(overviewBudget([{...middleton,transportMode:'cycle'}])).toBe(384);
+  expect(overviewBudget([{...middleton,departureTime:'2026-11-24T08:00:00Z'}])).toBe(96);
+  expect(overviewBudget([{...middleton,transportMode:'transit',departureTime:'2026-11-24T08:00:00Z'}])).toBe(96);
+  expect(cellsPerRequest([middleton,{...middleton,departureTime:'2026-11-24T08:00:00Z'}])).toBe(16);
+ });
+ it('packs samples closer together near the destination',()=>{
+  const grid=gridFor(middleton);const ids=overviewSamples(grid,[middleton],384);
+  expect(ids.length).toBe(384);
+  const dist=ids.map(id=>distanceKm(sampleOrigin(id),middleton));const radius=Math.max(...dist);
+  // Count per unit area: inner fifth of the radius vs the outer half of it.
+  const inner=dist.filter(d=>d<radius*0.2).length/(0.2**2);const outer=dist.filter(d=>d>radius*0.5).length/(1-0.5**2);
+  expect(inner).toBeGreaterThan(outer*4);
+ });
+});
 describe('overview display',()=>{
- it('draws each sample as a hexagon sized to the sample spacing, keeping its routed id',()=>{
-  const destination={id:'d',label:'Middleton',purpose:'Work',latitude:53.55,longitude:-2.2,transportMode:'drive' as const,journeysPerWeek:5,minimumMinutes:10,maximumMinutes:60,preferredMinutes:30,weight:100,hardMaximum:true};
-  const grid=gridFor(destination);
-  const ids=overviewSamples(grid,[destination]);
+ it('gives every part of the sampling area to its nearest routed sample, small near the centre',()=>{
+  const grid=gridFor(middleton);
+  const ids=overviewSamples(grid,[middleton],384);
   const display=overviewDisplayGrid(grid,ids);
-  expect(display.features.map(f=>f.properties.id)).toEqual(ids);
-  const fine=getHexagonAreaAvg(getResolution(ids[0]),UNITS.km2);
-  const drawn=[...display.cellFor.keys()].map(id=>getHexagonAreaAvg(getResolution(id),UNITS.km2));
-  expect(Math.max(...drawn)).toBeGreaterThan(fine*5);
-  expect(new Set(display.cellFor.keys()).size).toBe(ids.length);
+  const shown=display.features.map(f=>f.properties.id);
+  expect(new Set(shown).size).toBe(shown.length);expect(shown.every(id=>ids.includes(id))).toBe(true);
+  expect(shown.length).toBeGreaterThan(ids.length*0.95);
+  const tiles=[...display.cellFor.keys()];
+  const area=new Map<string,number>();for(const [tile,id] of display.cellFor)area.set(id,(area.get(id)??0)+getHexagonAreaAvg(getResolution(tile),UNITS.km2));
+  const areaNear=(near:boolean)=>{const list=ids.filter(id=>(distanceKm(sampleOrigin(id),middleton)<20)===near).map(id=>area.get(id)??0).sort((a,b)=>a-b);return list[Math.floor(list.length/2)];};
+  expect(areaNear(true)).toBeLessThan(areaNear(false)/3);
+  expect(areaNear(true)).toBeLessThan(25);
+  // Each tile belongs to its closest sample.
+  for(const tile of tiles.filter((_,i)=>i%97===0)){
+   const at=sampleOrigin(tile);const owner=display.cellFor.get(tile)!;
+   const closest=Math.min(...ids.map(id=>distanceKm(sampleOrigin(id),at)));
+   expect(distanceKm(sampleOrigin(owner),at)).toBeLessThanOrEqual(closest+0.05);
+  }
   const [cell,id]=[...display.cellFor.entries()][0];const [lat,lng]=cellToLatLng(cell);
   expect(displaySampleAt(display,{latitude:lat,longitude:lng})).toBe(id);
  });

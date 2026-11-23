@@ -28,7 +28,8 @@ describe("travel-time areas", () => {
     const grid = commuteGrid(destination);
     // A 35-minute drive formerly used resolution 5 outside the centre and 6 inside.
     expect(Math.min(...grid.features.map(feature => getResolution(feature.properties.id)))).toBe(6);
-    expect(getResolution(gridCellAt(grid, destination)!.properties.id)).toBe(7);
+    // Cells nearest the destination are split once more for short-commute detail.
+    expect(getResolution(gridCellAt(grid, destination)!.properties.id)).toBe(8);
     const cell = grid.features[1].properties.id;
     const parent = cellToParent(cell, getResolution(cell) - 1);
     expect(cellArea(cell, UNITS.km2)).toBeLessThan(cellArea(parent, UNITS.km2) / 6);
@@ -72,7 +73,7 @@ describe("travel-time areas", () => {
   });
   it("bounds batches and rejects cells outside the destination's sampling area", async () => {
     const cell = commuteGrid(destination).features[0].properties.id;
-    expect((await POST(request({ destination, cells: Array(17).fill(cell) }))).status).toBe(400);
+    expect((await POST(request({ destination, cells: Array(65).fill(cell) }))).status).toBe(400);
     expect((await POST(request({ destination, cells: [latLngToCell(51.5, -0.1, 7)] }))).status).toBe(400);
     expect(route).not.toHaveBeenCalled();
   });

@@ -2,7 +2,7 @@
 import {useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import type {Map as MapLibreMap} from 'maplibre-gl';
-import {catchmentBounds,type CatchmentData} from '@/src/lib/data/catchments';
+import {catchmentBounds,catchmentCoverage,type CatchmentData} from '@/src/lib/data/catchments';
 
 export function CatchmentOverlay({map,phase,school,onSchoolChange}:{map:MapLibreMap;phase:string;school:string;onSchoolChange:(urn:string)=>void}){
   const [data,setData]=useState<CatchmentData>();const [error,setError]=useState('');const [loading,setLoading]=useState(true);const [retry,setRetry]=useState(0);
@@ -34,9 +34,9 @@ export function CatchmentOverlay({map,phase,school,onSchoolChange}:{map:MapLibre
   const target=map.getContainer().parentElement;
   return <><div className="layer-status" aria-live="polite">
 <p>{school ? data?.features[0]?.properties.name ?? 'Selected school' : 'Click a school pin to show its catchment.'} {school && <button onClick={()=>onSchoolChange('')}>Show all boundaries</button>}</p>
-    {loading?'Loading published boundaries…':error?<span role="alert">{error} <button onClick={()=>setRetry(n=>n+1)}>Retry</button></span>:<p>{data?.features.length??0} outlines. {!data?.features.length?'No published boundary in this dataset for this school or view. This does not mean there is no catchment.':''}</p>}
-    <p>Coverage: Stockport only. Solid purple = catchment; dashed teal = Catholic associated area. Click a school pin to isolate its outline. These boundaries are separate from the school inspection filters.</p>
-    <p>Published council geometry; retrieved {data?.retrievedAt??'2026-09-28'}. Admission year is not specified by the map feed. Being inside does not guarantee admission; verify the address and intake year with the council.</p>
-    <a href="https://www.stockport.gov.uk/find-your-catchment-area" target="_blank" rel="noreferrer">Council map and address checker</a>
+    {loading?'Loading published boundaries…':error?<span role="alert">{error} <button onClick={()=>setRetry(n=>n+1)}>Retry</button></span>:data?.tooWide?<p>Zoom in to a town to see catchment outlines.</p>:<p>{data?.features.length??0} outlines. {!data?.features.length?'No published boundary in this view. Many councils don’t publish catchments as map data, and some admit by distance instead.':''}</p>}
+    <p>Coverage: {catchmentCoverage()}. Solid purple = catchment; dashed teal = other admission areas (Catholic associated, priority, community or designated areas). Click a school pin to isolate its outline.</p>
+    <p>Published council boundaries; retrieved {data?.retrievedAt??'2026-11-23'}. Being inside one doesn&apos;t guarantee a place. Check the address and intake year with the council.</p>
+    {data?.features[0]&&<a href={data.features[0].properties.sourceUrl} target="_blank" rel="noreferrer">{data.features[0].properties.council} council admissions</a>}
   </div>{target&&createPortal(<svg aria-label="Published school catchment outlines" style={{position:'absolute',inset:0,width:'100%',height:'100%',pointerEvents:'none',zIndex:2}}><g ref={group}>{paths.map(p=><path key={p.id} d={p.d} fill="none" stroke={p.associated?'#087c88':'#75329d'} strokeWidth={school?4:2.5} strokeDasharray={p.associated?'7 5':undefined} vectorEffect="non-scaling-stroke"><title>{p.name}</title></path>)}</g></svg>,target)}</>;
 }

@@ -23,8 +23,6 @@ function HeatMapContent(){
  const [destinations,setDestinations]=useState<DestinationConstraint[]>([]);
  const [loading,setLoading]=useState(false);
  const [error,setError]=useState<string>();
- const [minimumBudget,setMinimumBudget]=useState(0);
- const [budget,setBudget]=useState(500000);
  const [additional,setAdditional]=useState<{address:string;transportMode:TransportMode;minimumMinutes:number;maximumMinutes:number}[]>([]);
  const [destination,setDestination]=useState("");
  const [destinationFocused,setDestinationFocused]=useState(false);
@@ -38,19 +36,20 @@ function HeatMapContent(){
  const [transport,setTransport]=useState<TransportMode>("drive");
 
  function loadSaved(saved:SavedCriteria){
-  setView(saved.view??defaultView());setSearchRevision(n=>n+1);
+  const view=saved.view??defaultView();
+  // Older saved searches stored a price range on the search itself; keep it as the layer's range.
+  setView(saved.budget?{...view,price:{enabled:true,minimum:saved.minimumBudget??0,maximum:saved.budget}}:view);setSearchRevision(n=>n+1);
   const first=saved.destinations[0];
-  setMode(saved.mode);setMinimumBudget(saved.minimumBudget);setBudget(saved.budget);
+  setMode(saved.mode);
   setDestination(first.label);setTransport(first.transportMode);setMinimumTravel(first.minimumMinutes??0);setMaximumTravel(first.maximumMinutes??first.preferredMinutes??60);
   setDistance(first.maximumDistanceKm??40);setMinimumDistance(first.minimumDistanceKm??0);setJourneys(first.journeysPerWeek);setDepartureTime(first.departureTime?new Date(new Date(first.departureTime).getTime()-new Date(first.departureTime).getTimezoneOffset()*60000).toISOString().slice(0,16):'');
   setAdditional(saved.destinations.slice(1).map(d=>({address:d.label,transportMode:d.transportMode,minimumMinutes:d.minimumMinutes??0,maximumMinutes:d.maximumMinutes??d.preferredMinutes??60})));
   setDestinations(saved.destinations);
  }
- const nav=<Nav criteria={destinations.length?{version:1,mode,destinations,minimumBudget,budget,view}:undefined} onLoad={loadSaved}/>;
+ const nav=<Nav criteria={destinations.length?{version:1,mode,destinations,view}:undefined} onLoad={loadSaved}/>;
  async function run(){
   setLoading(true);setError(undefined);
   try{
-   if(!Number.isFinite(minimumBudget)||!Number.isFinite(budget)||minimumBudget<0||budget<=0||minimumBudget>budget)throw new Error("Enter a valid house-price range: minimum must not exceed maximum.");
    if(additional.some(d=>!d.address.trim()||d.minimumMinutes<0||!Number.isFinite(d.minimumMinutes)||!Number.isFinite(d.maximumMinutes)||d.maximumMinutes<=0||d.minimumMinutes>d.maximumMinutes))throw new Error("Check each additional destination and its travel-time range.");
    if(!departureTime&&(transport==="transit"||transport==="mixed"||additional.some(d=>d.transportMode==="transit"||d.transportMode==="mixed")))throw new Error("Choose a departure time for public transport journeys. Timetables depend on when you leave.");
    if((!AI_SEARCH_ENABLED||inputMode==="manual")&&!destination.trim())throw new Error("Type where you need to get to: a town, postcode or address.");
@@ -71,7 +70,6 @@ function HeatMapContent(){
       const response=await fetch('/api/geocode',{method:'POST',headers:{'Content-Type':'application/json',...await authHeaders()},body:JSON.stringify({address:item.address})});const location=await response.json();if(!response.ok||typeof location.latitude!=='number'||typeof location.longitude!=='number')throw new Error(location.error??'Additional destination not found');
       return {...parsed.destinations[0],id:'additional:'+index+':'+location.latitude+','+location.longitude,label:location.label??item.address,latitude:location.latitude,longitude:location.longitude,transportMode:item.transportMode,minimumMinutes:item.minimumMinutes,maximumMinutes:item.maximumMinutes,preferredMinutes:item.maximumMinutes};
     }));parsed.destinations.push(...extra);
-    parsed.property={maximumBudget:budget,hardBudget:false};
     parsed.lifestyle=[];
    }
    // Google (paid) routing is only used when a departure time is chosen.
@@ -81,17 +79,17 @@ function HeatMapContent(){
   finally{setLoading(false)}
  }
 
- if(destinations.length)return <Results key={searchRevision} destinations={destinations} budget={budget} minimumBudget={minimumBudget} edit={()=>setDestinations([])} nav={nav} onDestinationsChange={setDestinations}/>;
+ if(destinations.length)return <Results key={searchRevision} destinations={destinations} edit={()=>setDestinations([])} nav={nav} onDestinationsChange={setDestinations}/>;
  return <main className="shell home">{nav}
  <section className="home-hero">
   <div className="home-intro">
    <span className="eyebrow">Find your next area</span>
    <h1 className="serif">Where does your life <em>fit best?</em></h1>
-   <p className="sub">Tell Commutemap where you need to get to and what you can spend. It maps your commute and shows the areas that work, with the facts you&apos;d want before you move.</p>
+   <p className="sub">Tell Commutemap where you need to get to. It maps your commute, shows the areas that work, and lets you layer on the facts you&apos;d want before you move.</p>
    <ul className="home-points">
     <li><b>Commutes that work</b><span>A journey-time heatmap to up to three places, by car, public transport, bike or on foot.</span></li>
-    <li><b>Prices that fit</b><span>Recent sold prices from HM Land Registry, checked against your budget.</span></li>
-    <li><b>Life around you</b><span>Overlay school catchments, flood risk, crime, parks, shops and transport stops on the same map.</span></li>
+    <li><b>Life around you</b><span>Switch on school catchments, sold house prices, flood risk, crime, parks, shops and transport stops over the same map.</span></li>
+    <li><b>A quick read on each area</b><span>A short write-up of every nearby town, with its journey times and typical prices.</span></li>
    </ul>
   </div>
   <div className="search-card">
@@ -101,8 +99,6 @@ function HeatMapContent(){
     <Field id="destination" label="Main destination"><input id="destination" value={destination} onChange={event=>setDestination(event.target.value)} onFocus={()=>setDestinationFocused(true)} onBlur={()=>setDestinationFocused(false)} placeholder={placeholder} aria-describedby="destination-hint" autoComplete="off"/><small id="destination-hint" className="sr-only">Type a town, postcode or address you travel to, such as Hammersmith or Edinburgh.</small></Field>
     <Field id="transport" label="Travel mode"><select id="transport" value={transport} onChange={event=>setTransport(event.target.value as TransportMode)}><option value="any">Any travel mode</option><option value="drive">Drive</option><option value="transit">Public transport + walking</option><option value="cycle">Cycle</option><option value="walk">Walk</option></select></Field>
     <div className="additional-destinations">{additional.map((item,index)=><fieldset key={index}><legend>Destination {index+2}</legend><label>Address or town<input aria-label={'Destination '+(index+2)} value={item.address} onChange={e=>setAdditional(old=>old.map((d,i)=>i===index?{...d,address:e.target.value}:d))}/></label><label>Travel mode<select aria-label={'Destination '+(index+2)+' travel mode'} value={item.transportMode} onChange={e=>setAdditional(old=>old.map((d,i)=>i===index?{...d,transportMode:e.target.value as TransportMode}:d))}>{[['any','Any travel mode'],['drive','Driving'],['transit','Public transport + walking'],['cycle','Cycling'],['walk','Walking']].map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label><label>Minimum minutes<input aria-label={'Destination '+(index+2)+' minimum minutes'} type="number" min="0" value={item.minimumMinutes} onChange={e=>setAdditional(old=>old.map((d,i)=>i===index?{...d,minimumMinutes:Number(e.target.value)}:d))}/></label><label>Maximum minutes<input aria-label={'Destination '+(index+2)+' maximum minutes'} type="number" min="1" max="180" value={item.maximumMinutes} onChange={e=>setAdditional(old=>old.map((d,i)=>i===index?{...d,maximumMinutes:Number(e.target.value)}:d))}/></label><button type="button" onClick={()=>setAdditional(old=>old.filter((_,i)=>i!==index))}>Remove destination {index+2}</button></fieldset>)}{additional.length<2&&<button type="button" className="btn light" onClick={()=>setAdditional(old=>[...old,{address:'',transportMode:'drive',minimumMinutes:0,maximumMinutes:45}])}>+ Add another destination</button>}<small>Up to three destinations, each with its own travel mode and time limits. Distance limits and departure time apply to all.</small></div>
-    <Field id="minimum-budget" label="Minimum house price (£)"><input id="minimum-budget" type="number" min="0" step="10000" value={minimumBudget} onChange={event=>setMinimumBudget(Number(event.target.value))}/></Field>
-    <Field id="budget" label="Maximum house price (£)"><input id="budget" type="number" min="1" step="10000" value={budget} onChange={event=>setBudget(Number(event.target.value))}/></Field>
     <Field id="departure-time" label={transport==="transit"?"When are you travelling? (needed for public transport)":"When are you travelling? (optional)"}><input id="departure-time" type="datetime-local" value={departureTime} onChange={event=>setDepartureTime(event.target.value)}/><small>{departureTime?"Journey times will use live traffic and public transport timetables for this day and time.":"Leave blank to see typical journey times by car, bike or on foot. Add a day and time to include public transport and live traffic."}</small></Field>
     <details className="refine"><summary>Refine distance and journey time</summary><div className="refine-body">
     <RangeSlider id="distance" label="Distance" lower={minimumDistance} upper={distance} min={0} max={100} unit="km" onLowerChange={setMinimumDistance} onUpperChange={setDistance}/>
@@ -119,7 +115,7 @@ function HeatMapContent(){
   <ol>
    <li><b>Add where you travel</b><span>Work, school, family: up to three places, each with its own travel mode and time limit.</span></li>
    <li><b>See your commute heatmap</b><span>Every area is coloured by journey time, so you can see at a glance where every trip fits.</span></li>
-   <li><b>Compare the areas that fit</b><span>Look at sold prices, schools, flood risk, crime and amenities, and save searches to your account.</span></li>
+   <li><b>Layer on what matters</b><span>Switch on schools, sold prices, flood risk, crime and amenities, read up on each area, and save searches to your account.</span></li>
   </ol>
  </section>
  <section className="home-layers" aria-labelledby="layers-heading">
@@ -130,21 +126,21 @@ function HeatMapContent(){
   <ul>
    <li><b>School catchments</b><span>Published catchment boundaries, so you can see which schools a street falls in. Click a school to highlight its area.</span></li>
    <li><b>Schools &amp; inspections</b><span>State and independent schools across England, Wales and Scotland, with their latest inspection results.</span></li>
-   <li><b>Sold house prices</b><span>Recent HM Land Registry sales nearby, coloured against your budget.</span></li>
+   <li><b>Sold house prices</b><span>Recent HM Land Registry sales nearby, in a price range you set on the map.</span></li>
    <li><b>Flood risk</b><span>Environment Agency river, sea and surface-water flood maps.</span></li>
    <li><b>Reported crime</b><span>The latest police.uk street-level reports around the area.</span></li>
    <li><b>Parks, amenities &amp; transport</b><span>Green space, shops and everyday services, and bus, tram and rail stops.</span></li>
   </ul>
-  <p className="home-layers-note">Catchment boundaries currently cover Stockport, with more councils to follow. Flood maps cover England.</p>
+  <p className="home-layers-note">Catchment boundaries cover the 26 councils that publish them as open data, including Glasgow, Edinburgh, Sheffield, Hampshire, Wiltshire, Cheshire, Bristol and Stockport. Flood maps cover England.</p>
  </section>
  <p className="home-sources">Built on official and open data: Google routing, HM Land Registry, Ofsted and DfE (plus Welsh and Scottish Government school data), the Environment Agency, police.uk and OpenStreetMap.</p>
 </main>;
 }
 
-function Results({destinations,budget,minimumBudget,edit,nav,onDestinationsChange}:{destinations:DestinationConstraint[];budget:number;minimumBudget:number;edit:()=>void;nav:React.ReactNode;onDestinationsChange:(destinations:DestinationConstraint[])=>void}){
+function Results({destinations,edit,nav,onDestinationsChange}:{destinations:DestinationConstraint[];edit:()=>void;nav:React.ReactNode;onDestinationsChange:(destinations:DestinationConstraint[])=>void}){
  return <main className="workspace">{nav}
   <section className="result-head"><div><span className="eyebrow">Commute-time heatmap</span><h1 className="serif">Best areas for your life</h1></div><button className="btn light" onClick={edit}>Edit priorities</button></section>
-  <AreaResults key={JSON.stringify(destinations)} onDestinationsChange={onDestinationsChange} destinations={destinations} budget={budget} minimumBudget={minimumBudget}/>
+  <AreaResults key={JSON.stringify(destinations)} onDestinationsChange={onDestinationsChange} destinations={destinations}/>
   <footer className="demo-note">Where shown, historical price averages use HM Land Registry data © Crown copyright and database right 2021, licensed under the Open Government Licence v3.0. Map © OpenStreetMap contributors.</footer>
  </main>
 }

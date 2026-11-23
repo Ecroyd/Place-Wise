@@ -11,14 +11,16 @@ import {distanceKm} from '@/src/lib/routing/commute';
 import {matchesSchool,type LayerData} from '@/src/lib/data/layers';
 import {routeFits,type CombinedMatch} from '@/src/lib/data/combined';
 import type {NearbyArea} from '@/src/lib/data/nearby';
-const schema=z.object({destinations:z.array(destinationSchema).min(1).max(3),center:coordinatesSchema.optional(),minimumPrice:z.number().nonnegative(),maximumPrice:z.number().positive(),school:z.object({enabled:z.boolean(),phase:z.string().max(50),rating:z.enum(['all','legacy:1','legacy:2','legacy:3','legacy:4','new:Exceptional','new:Strong standard','new:Expected standard','new:Needs attention','new:Urgent improvement']),reportArea:z.string().max(80),maximumWalkMinutes:z.number().min(1).max(60)})}).refine(v=>v.minimumPrice<=v.maximumPrice);
+const schema=z.object({destinations:z.array(destinationSchema).min(1).max(3),center:coordinatesSchema.optional(),minimumPrice:z.number().nonnegative().default(0),maximumPrice:z.number().positive().optional(),school:z.object({enabled:z.boolean(),phase:z.string().max(50),rating:z.enum(['all','legacy:1','legacy:2','legacy:3','legacy:4','new:Exceptional','new:Strong standard','new:Expected standard','new:Needs attention','new:Urgent improvement']),reportArea:z.string().max(80),maximumWalkMinutes:z.number().min(1).max(60)})}).refine(v=>v.maximumPrice===undefined||v.minimumPrice<=v.maximumPrice);
 interface School {country?:string;url?:string;id:string;name:string;latitude:number;longitude:number;phase:string;grades:Record<string,string>;legacy?:string}
 async function handlePost(request:Request){
  const limited=await apiLimit(request,"matches",12);if(limited)return limited;
  const parsed=schema.safeParse(await request.json().catch(()=>null));if(!parsed.success)return Response.json({error:'Check your destinations, price range and school filters.'},{status:400});
- const {destinations,center,minimumPrice,maximumPrice,school}=parsed.data;
+ const {destinations,center,minimumPrice,school}=parsed.data;
+ // Price is optional: without a range, any recent sale marks a candidate postcode.
+ const priced=parsed.data.maximumPrice!==undefined;const maximumPrice=parsed.data.maximumPrice??1e10;
  try{
-  const areaResponse=await nearby(new Request('http://localhost/api/areas',{method:'POST',signal:request.signal,body:JSON.stringify({destinations,destination:destinations[0],center,budget:maximumPrice})}));
+  const areaResponse=await nearby(new Request('http://localhost/api/areas',{method:'POST',signal:request.signal,body:JSON.stringify({destinations,destination:destinations[0],center})}));
   const areaData=await areaResponse.json() as {areas?:NearbyArea[];error?:string};if(!areaResponse.ok)throw Error(areaData.error??'Area discovery unavailable');
   const areas=(areaData.areas??[]).filter(a=>a.withinLimits).slice(0,4);
   const points=new Map<string,LayerData['points'][number]>();let priceFailures=0;
@@ -34,7 +36,7 @@ async function handlePost(request:Request){
    matches.push({id:point.id,name:point.name,latitude:point.latitude,longitude:point.longitude,price:point.price!,details:point.details,journeys,school:selectedSchool});
   }}));
   matches.sort((a,b)=>Math.max(...a.journeys.map(j=>j.minutes))-Math.max(...b.journeys.map(j=>j.minutes)));
-  return Response.json({matches,checked,areaCount:areas.length,priceFailures,routeFailures,note:`Checked ${checked} postcode locations across ${areas.length} sampled areas. Up to 12 postcodes and the 3 nearest matching schools per postcode are tested. Historic sales within your price range; postcode-centre and school-postcode routes are approximate. This is a bounded shortlist, not an exhaustive search or a guarantee of admissions or available homes.`});
+  return Response.json({matches,checked,areaCount:areas.length,priceFailures,routeFailures,note:`Checked ${checked} postcode locations across ${areas.length} sampled areas. Up to 12 postcodes and the 3 nearest matching schools per postcode are tested. ${priced?'Historic sales within your price range':'Postcodes with recent recorded sales'}; postcode-centre and school-postcode routes are approximate. This is a bounded shortlist, not an exhaustive search or a guarantee of admissions or available homes.`});
  }catch(error){return Response.json({error:error instanceof Error?error.message:'Combined search unavailable'},{status:502});}
 }
 

@@ -8,6 +8,7 @@ import {restoreCriteria,savedCriteriaSchema,type SavedCriteria,type SavedSearch}
 export function AccountMenu({criteria,onLoad}:{criteria?:SavedCriteria;onLoad:(criteria:SavedCriteria)=>void}){
  const [session,setSession]=useState<Session|null>(null);
  const [ready,setReady]=useState(false);
+ const [awaitingTopUp,setAwaitingTopUp]=useState(false);
  const [panel,setPanel]=useState<'signin'|'signup'|'saved'|'save'|'forgot'|'resend'|'reset'|'credit'|null>(null);
  const [confirmation,setConfirmation]=useState('');
  const [email,setEmail]=useState('');const [password,setPassword]=useState('');
@@ -25,7 +26,7 @@ export function AccountMenu({criteria,onLoad}:{criteria?:SavedCriteria;onLoad:(c
    const {data,error}=await client.auth.getSession();
    if(active){setSession(data.session);setReady(true);if(error)setError(error.message);
     if(new URLSearchParams(window.location.search).get('account')==='recovery'){setPanel(data.session?'reset':'forgot');if(!data.session)setError('This recovery link has expired or is invalid. Request a new one below.');}
-    const credits=new URLSearchParams(window.location.search).get('credits');if(credits){window.history.replaceState({},'',window.location.pathname);if(data.session){setPanel('credit');setMessage(credits==='success'?'Thanks — your credit will appear here within a minute of payment.':'Top-up cancelled. Nothing was charged.');}}
+    const credits=new URLSearchParams(window.location.search).get('credits');if(credits){window.history.replaceState({},'',window.location.pathname);if(data.session){setPanel('credit');if(credits==='success')setAwaitingTopUp(true);else setMessage('Top-up cancelled. Nothing was charged.');}}
     const authError=new URLSearchParams(window.location.hash.slice(1)).get('error_description');if(authError){setError(authError);setPanel('forgot');}
    }
   }).catch(cause=>{if(active){setError(cause instanceof Error?cause.message:'Sign-in unavailable');setReady(true);}});
@@ -94,7 +95,7 @@ export function AccountMenu({criteria,onLoad}:{criteria?:SavedCriteria;onLoad:(c
   {panel==='reset'&&<form onSubmit={event=>{event.preventDefault();void perform(resetPassword);}}><label>New password<input type="password" required minLength={8} autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)}/></label><label>Confirm new password<input type="password" required minLength={8} autoComplete="new-password" value={confirmation} onChange={e=>setConfirmation(e.target.value)}/></label><button className="btn primary" disabled={busy}>{busy?'Updating…':'Update password'}</button></form>}
   {panel==='save'&&<form onSubmit={event=>{event.preventDefault();void perform(save);}}><label>Search name<input required maxLength={120} value={name} onChange={e=>setName(e.target.value)}/></label><p>Includes all destinations, journey modes and limits, and your house-price range. Also saves map position, visible layers, school filters and combined-match preferences.</p><button className="btn primary" disabled={busy}>{busy?'Saving…':'Save search'}</button></form>}
   {panel==='saved'&&<><p>{session?.user.email}</p>{busy&&<p>Loading…</p>}{!busy&&!searches.length&&<p>No saved searches yet. Run a search and choose Save search.</p>}{searches.map(search=><article className="saved-search" key={search.id}><strong>{search.name}</strong><small>Saved {new Date(search.created_at).toLocaleDateString('en-GB')}</small><div><button className="btn primary" disabled={busy} onClick={()=>{try{onLoad(restoreCriteria(search.criteria));setPanel(null);}catch{setError('This saved search has an unsupported format. Please create a new search.');}}}>Open search</button><button className="btn" disabled={busy} onClick={()=>void perform(async()=>{const result=await getBrowserClient().from('saved_searches').delete().eq('id',search.id);if(result.error)throw result.error;await loadSearches();})}>Delete</button></div></article>)}</>}
-  {panel==='credit'&&session&&<UsageCredit/>}
+  {panel==='credit'&&session&&<UsageCredit awaitingTopUp={awaitingTopUp}/>}
   {message&&<p role="status">{message}</p>}{error&&<p role="alert">{error}</p>}
  </dialog></>;
 }

@@ -8,7 +8,7 @@ import type { Map as MapLibreMap, Popup, Marker } from "maplibre-gl";
 import type { Coordinates, DestinationConstraint, JourneyStep, TransportMode } from "@/src/types/domain";
 import { commuteGrid, sharedCommuteGrid, commuteColour, commuteLimits, gridCellAt, withinTravelTime, type CommuteSample } from "@/src/lib/routing/commute";
 
-import {overviewSamples,overviewDisplayGrid,displaySampleAt,DETAIL_ROUTE_BUDGET} from '@/src/lib/routing/sampling';
+import {overviewSamples,overviewDisplayGrid,displaySampleAt,overviewBudget,cellsPerRequest,DETAIL_ROUTE_BUDGET} from '@/src/lib/routing/sampling';
 import { commuteDetailGrid } from "@/src/lib/routing/detail";
 import {authHeaders} from '@/src/lib/supabase/browser';
 
@@ -27,7 +27,7 @@ function useCompactMapChrome(query = "(max-width: 900px)") {
   return compact;
 }
 
-export function GoogleAreaMap({ destinations, selectedArea, onPointSelected, budget=500000, minimumBudget=0, onModeChange, onDepartureChange, combinedMatches=[] }: { destinations: DestinationConstraint[]; budget?:number; minimumBudget?:number; onModeChange?:(mode:TransportMode,index:number)=>void; onDepartureChange?: (departureTime: string | undefined, index: number) => void; combinedMatches?:CombinedMatch[]; selectedArea?: Coordinates & {minutes:number|null;selectedMode?:TransportMode}; onPointSelected?: (point:Coordinates)=>void }) {
+export function GoogleAreaMap({ destinations, selectedArea, onPointSelected, onModeChange, onDepartureChange, combinedMatches=[] }: { destinations: DestinationConstraint[]; onModeChange?:(mode:TransportMode,index:number)=>void; onDepartureChange?: (departureTime: string | undefined, index: number) => void; combinedMatches?:CombinedMatch[]; selectedArea?: Coordinates & {minutes:number|null;selectedMode?:TransportMode}; onPointSelected?: (point:Coordinates)=>void }) {
   const {view,setView}=useSearchView();
   const initialView=useRef(view.viewport);
   const maskId = useId().replace(/:/g, "");
@@ -140,7 +140,8 @@ export function GoogleAreaMap({ destinations, selectedArea, onPointSelected, bud
         let currentDetailSamples: CommuteSample[] = [];
         const detailCache = new Map<string, { sample: CommuteSample; expires: number }>();
         const targets=allDestinations?destinations:[baseDestination];
-        const ids = overviewSamples(generated,targets);
+        const ids = overviewSamples(generated,targets,overviewBudget(targets));
+        const batch = cellsPerRequest(targets);
         const display = overviewDisplayGrid(generated, ids);
         setProgress({ done: 0, total: ids.length, missing: 0 });
         map = new maplibre.Map({
@@ -312,10 +313,10 @@ export function GoogleAreaMap({ destinations, selectedArea, onPointSelected, bud
           overviewLoading=true;
           const samples: CommuteSample[] = [...samplesRef.current];
           try {
-            for (let offset = samples.length; offset < ids.length; offset += 16) {
+            for (let offset = samples.length; offset < ids.length; offset += batch) {
               if(!visibleRef.current||controller.signal.aborted)return;
               const response = await fetch("/api/commute", { method: "POST", signal: controller.signal,
-                headers: { "Content-Type": "application/json" ,...await authHeaders()}, body: JSON.stringify({ destination:baseDestination, destinations:allDestinations?destinations:undefined, cells: ids.slice(offset, offset + 16) }),
+                headers: { "Content-Type": "application/json" ,...await authHeaders()}, body: JSON.stringify({ destination:baseDestination, destinations:allDestinations?destinations:undefined, cells: ids.slice(offset, offset + batch) }),
               });
               const payload = await response.json() as { samples?: CommuteSample[]; error?: string };
               if (!response.ok || !payload.samples) throw new Error(payload.error ?? "Commute times could not load.");
@@ -455,7 +456,7 @@ export function GoogleAreaMap({ destinations, selectedArea, onPointSelected, bud
         {routeError && <div className="commute-error" role="alert">{routeError} <button onClick={() => setRetry(value => value + 1)}>Retry</button></div>}
       </div>
     </details>
-    <MapLayers map={mapInstance} budget={budget} minimumBudget={minimumBudget} open={layersOpen} onOpenChange={open => open ? openLayers() : closeLayers()}/>
+    <MapLayers map={mapInstance} open={layersOpen} onOpenChange={open => open ? openLayers() : closeLayers()}/>
     <details className={`heat-callout${selected != null ? " has-selection" : ""}`} open={calloutOpen} onToggle={event => {
       const open = (event.currentTarget as HTMLDetailsElement).open;
       if (open) openCallout();

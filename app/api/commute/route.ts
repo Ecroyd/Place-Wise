@@ -10,7 +10,7 @@ import { getLiveRoutingProvider } from "@/src/lib/routing/provider";
 import { routeMany } from "@/src/lib/routing/batch";
 import type { JourneyStep } from "@/src/types/domain";
 
-const schema = z.object({ destination: destinationSchema, destinations:z.array(destinationSchema).min(1).max(3).optional(), cells: z.array(z.string().refine(isValidCell, "Invalid heatmap cell")).min(1).max(16) });
+const schema = z.object({ destination: destinationSchema, destinations:z.array(destinationSchema).min(1).max(3).optional(), cells: z.array(z.string().refine(isValidCell, "Invalid heatmap cell")).min(1).max(64) });
 
 // Short-lived, bounded cache: traffic-aware estimates should not persist for months.
 const cache = new Map<string, { sample: CommuteSample; expires: number }>();

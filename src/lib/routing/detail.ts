@@ -32,9 +32,11 @@ export function commuteDetailGrid(base: Grid, bounds: ViewBounds, zoom: number):
   const allowed = new Set(base.features.map(feature => feature.properties.id));
   const ring = [[bounds.west, bounds.south], [bounds.east, bounds.south], [bounds.east, bounds.north], [bounds.west, bounds.north], [bounds.west, bounds.south]];
   for (; resolution >= 8; resolution--) {
+    // Base cells count too: the overview routes only a spread of them, so near the
+    // destination (where the base grid is already this fine) detail routes the rest.
     const ids = polygonToCells([ring], resolution, true).filter(id => {
       const parent = baseCellFor(id, allowed);
-      return parent && getResolution(parent) < resolution;
+      return parent && getResolution(parent) <= resolution;
     });
     if (ids.length > MAX_DETAIL_CELLS) continue;
     return { type: "FeatureCollection", features: ids

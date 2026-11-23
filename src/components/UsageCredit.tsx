@@ -10,19 +10,28 @@ const pounds=(hundredthsOfPenny:number)=>'£'+(hundredthsOfPenny/10000).toFixed(
 const pence=(hundredthsOfPenny:number)=>(hundredthsOfPenny/100).toLocaleString('en-GB',{maximumFractionDigits:2})+'p';
 const SKU_LABEL:Record<string,string>={routes:'public transport, walking or cycling journey',matrix:'travel-time map point',geocoding:'place lookup','routes-pro':'traffic-aware drive','matrix-pro':'traffic-aware map point'};
 
-export function UsageCredit(){
+// After Stripe sends someone back, the credit arrives a few seconds later (once Stripe
+// reports its fee), so keep checking for up to a minute and confirm when it lands.
+export function UsageCredit({awaitingTopUp=false}:{awaitingTopUp?:boolean}){
  const [credits,setCredits]=useState<Credits|null>(null);
  const [error,setError]=useState('');const [busy,setBusy]=useState<number|null>(null);
+ const [arrived,setArrived]=useState<Credits['ledger'][number]|null>(null);const [waiting,setWaiting]=useState(awaitingTopUp);
  useEffect(()=>{
-  let active=true;
-  void (async()=>{
+  let active=true;let timer:ReturnType<typeof setTimeout>|undefined;const since=Date.now()-10*60000;let attempts=0;
+  const load=async()=>{
    const response=await fetch('/api/credits',{headers:await authHeaders(),cache:'no-store'});
-   const payload=await response.json();
+   const payload=await response.json() as Credits&{error?:string};
    if(!active)return;
-   if(!response.ok)setError(payload.error??'Usage credit is unavailable.');else setCredits(payload);
-  })().catch(()=>{if(active)setError('Usage credit is unavailable.');});
-  return()=>{active=false;};
- },[]);
+   if(!response.ok){setError(payload.error??'Usage credit is unavailable.');return;}
+   setCredits(payload);
+   if(!awaitingTopUp)return;
+   const topUp=payload.ledger.find(row=>row.kind==='topup'&&Date.parse(row.created_at)>=since);
+   if(topUp){setArrived(topUp);setWaiting(false);return;}
+   if(++attempts<20)timer=setTimeout(()=>void load().catch(()=>{}),3000);else setWaiting(false);
+  };
+  void load().catch(()=>{if(active)setError('Usage credit is unavailable.');});
+  return()=>{active=false;clearTimeout(timer);};
+ },[awaitingTopUp]);
  async function topUp(amount:number){
   setBusy(amount);setError('');
   try{
@@ -33,6 +42,9 @@ export function UsageCredit(){
   }catch(cause){setError(cause instanceof Error?cause.message:'Top-ups are unavailable right now.');setBusy(null);}
  }
  return <div className="usage-credit">
+  {arrived&&<p className="credit-confirmed" role="status"><strong>✓ {pounds(arrived.delta)} added to your credit.</strong> You paid £{((arrived.paid_pence??0)/100).toFixed(2)}; the card fee was £{((arrived.fee_pence??0)/100).toFixed(2)}. Thank you.</p>}
+  {waiting&&<p className="credit-waiting" role="status">Payment received. Adding your credit… this usually takes a few seconds.</p>}
+  {awaitingTopUp&&!waiting&&!arrived&&<p className="credit-waiting" role="status">Your payment went through, but the credit hasn&apos;t shown up yet. It will appear here shortly. If it hasn&apos;t within an hour, contact us and we&apos;ll sort it out.</p>}
   {credits&&<p className="credit-balance"><strong>{pounds(credits.balance)}</strong> usage credit</p>}
   <section aria-label="How usage credit works">
    <p><strong>Commutemap isn&apos;t run for profit.</strong> Google charges for every journey and place lookup. Everyone shares a free monthly allowance; when it runs out, you can keep going with your own usage credit.</p>

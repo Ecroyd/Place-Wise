@@ -14,11 +14,11 @@ describe('school sectors and published boundaries',()=>{
   });
   it('returns actual supplied geometry, including boundaries enclosing the view',()=>{
     const data:CatchmentData={type:'FeatureCollection',retrievedAt:'2026-09-28',coverage:'Fixture',sourceUrl:'https://example.test',features:[{type:'Feature',geometry:{type:'Polygon',coordinates:[[[0,0],[4,0],[4,4],[0,4],[0,0]]]},properties:{id:'one',urn:'123456',name:'Example',phase:'Primary',category:'Catchment',council:'Example',sourceUrl:'https://example.test'}}]};
-    const b={west:1,east:2,south:1,north:2};
+    const b={west:1,east:1.5,south:1,north:1.5};
     expect(catchmentsInView(data,b).features[0].geometry).toEqual(data.features[0].geometry);
     expect(catchmentsInView(data,b,'Secondary').features).toHaveLength(0);
     expect(catchmentsInView(data,b,'All','999999').features).toHaveLength(0);
-    expect(catchmentsInView(data,{west:10,east:11,south:10,north:11}).features).toHaveLength(0);
+    expect(catchmentsInView(data,{west:10,east:10.5,south:10,north:10.5}).features).toHaveLength(0);
   });
   it('ships official independent records without manufactured catchments or ratings',()=>{
     const data=JSON.parse(readFileSync('src/data/independent-schools.json','utf8'));

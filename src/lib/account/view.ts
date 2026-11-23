@@ -5,6 +5,8 @@ export const viewSchema=z.object({
  school:z.object({enabled:z.boolean(),phase:z.string().max(50),rating:z.string().max(60),reportArea:z.string().max(80),maximumWalkMinutes:z.number().min(1).max(60)}).default({enabled:false,phase:'Primary',rating:'all',reportArea:'Achievement',maximumWalkMinutes:15}),
  viewport:z.object({latitude:z.number().min(-85).max(85),longitude:z.number().min(-180).max(180),zoom:z.number().min(0).max(22)}).optional(),
  searchPoint:z.object({latitude:z.number().min(-85).max(85),longitude:z.number().min(-180).max(180)}).optional(),
+ // House prices are an optional overlay: the sold-prices layer and, when enabled, combined matches use this range.
+ price:z.object({enabled:z.boolean(),minimum:z.number().nonnegative(),maximum:z.number().positive()}).refine(p=>p.minimum<=p.maximum).default({enabled:false,minimum:0,maximum:500000}),
  destinationIndex:z.number().int().min(-1).max(2).optional(),shading:z.number().min(10).max(80).default(50),visible:z.boolean().default(true)
 });
 export type SearchView=z.infer<typeof viewSchema>;
