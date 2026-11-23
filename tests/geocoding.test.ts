@@ -10,6 +10,12 @@ describe('place ranking', () => {
     expect(bestPlace(places, 'Middleton')?.district_borough).toBe('Rochdale');
     expect(bestPlace(places, 'middleton', 'Leeds')?.district_borough).toBe('Leeds');
     expect(bestPlace(places, 'Middleton', 'Cornwall')).toBeUndefined();
+    const hammersmith = [{name_1: 'Hammersmith', local_type: 'Suburban Area', latitude: 53.06, longitude: -1.41, district_borough: 'Amber Valley', county_unitary: 'Derbyshire', region: 'East Midlands'},
+      {name_1: 'Hammersmith', local_type: 'Other Settlement', latitude: 51.49, longitude: -0.22, district_borough: 'Hammersmith and Fulham', county_unitary: 'Greater London', region: 'London'}];
+    expect(bestPlace(hammersmith, 'Hammersmith')?.region).toBe('London');
+    const newport = [{name_1: 'Newport', local_type: 'Town', latitude: 52.7, longitude: -2.3, district_borough: null, county_unitary: 'Telford and Wrekin', region: 'West Midlands'},
+      {name_1: 'Casnewydd', name_2: 'Newport', local_type: 'City', latitude: 51.58, longitude: -2.99, district_borough: null, county_unitary: 'Casnewydd - Newport', region: 'Wales'}];
+    expect(bestPlace(newport, 'Newport')?.region).toBe('Wales');
   });
 });
 

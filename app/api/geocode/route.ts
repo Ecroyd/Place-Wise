@@ -6,7 +6,7 @@ import {z} from "zod";
 const requestSchema=z.object({address:z.string().trim().min(2).max(200)});
 type Geocoded={label:string;latitude:number;longitude:number};
 const memory=new Map<string,{value:Geocoded;expires:number}>();
-const geocodeCacheKey=(address:string)=>'geocode:v2:'+address.toLowerCase().replace(/\s+/g,' ').trim();
+const geocodeCacheKey=(address:string)=>'geocode:v3:'+address.toLowerCase().replace(/\s+/g,' ').trim();
 async function handlePost(request:Request){
  const limited=await apiLimit(request,"geocode",60);if(limited)return limited;
  const parsed=requestSchema.safeParse(await request.json().catch(()=>null));

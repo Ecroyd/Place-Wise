@@ -23,13 +23,17 @@ async function json<T>(url:string,init?:RequestInit):Promise<T|null>{
  return await response.json() as T;
 }
 
-type Place={name_1:string;local_type:string;latitude:number;longitude:number;district_borough?:string|null;county_unitary?:string|null;region?:string|null};
+type Place={name_1:string;name_2?:string|null;local_type:string;latitude:number;longitude:number;district_borough?:string|null;county_unitary?:string|null;region?:string|null};
 export function bestPlace(places:Place[],name:string,qualifier?:string):Place|undefined{
  const wanted=normalise(name);const within=qualifier?normalise(qualifier):undefined;
  return places
-  .filter(place=>normalise(place.name_1)===wanted&&place.local_type in PLACE_RANK)
+  // Welsh places can be listed under their Welsh name with the English one second (Casnewydd / Newport).
+  .filter(place=>(normalise(place.name_1)===wanted||(place.name_2!=null&&normalise(place.name_2)===wanted))&&place.local_type in PLACE_RANK)
   .filter(place=>!within||[place.district_borough,place.county_unitary,place.region].some(area=>area&&normalise(area).includes(within)))
-  .sort((a,b)=>PLACE_RANK[a.local_type]-PLACE_RANK[b.local_type])[0];
+  // A place that gives its name to its borough or county is the main one
+  // ("Hammersmith" in "Hammersmith and Fulham", "Leeds" in "Leeds"), whatever OS calls it.
+  .map(place=>({place,named:[place.district_borough,place.county_unitary].some(area=>area&&normalise(area).split(' ').includes(wanted.split(' ')[0])&&normalise(area).includes(wanted))}))
+  .sort((a,b)=>Number(b.named)-Number(a.named)||PLACE_RANK[a.place.local_type]-PLACE_RANK[b.place.local_type])[0]?.place;
 }
 
 async function fromPostcodes(address:string):Promise<Geocoded|null>{
@@ -52,7 +56,10 @@ async function fromPostcodes(address:string):Promise<Geocoded|null>{
  if(!place)return null;
  const area=place.district_borough??place.county_unitary??place.region;
  // "Leeds, Leeds" reads oddly; only add the area when it differs from the place.
- return {label:[place.name_1,area&&normalise(area)!==normalise(place.name_1)?area:undefined].filter(Boolean).join(', '),latitude:place.latitude,longitude:place.longitude,source:'postcodes.io'};
+ const shown=place.name_2&&normalise(place.name_2)===normalise(name)?place.name_2:place.name_1;
+ // Show where it is: the borough, or the region when the borough just repeats the name.
+ const where=area&&!normalise(area).includes(normalise(shown))?area.replace(/^.* - /,''):place.region??undefined;
+ return {label:[shown,where].filter(Boolean).join(', '),latitude:place.latitude,longitude:place.longitude,source:'postcodes.io'};
 }
 
 async function fromOpenRouteService(address:string):Promise<Geocoded|null>{
