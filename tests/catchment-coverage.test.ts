@@ -25,3 +25,12 @@ describe('published catchment coverage',()=>{
     expect(readFileSync('src/data/catchments.json').length).toBeLessThan(12_000_000);
   });
 });
+
+import {ringPolygon,DISTANCE_RINGS_M} from '../src/components/CatchmentOverlay';
+describe('straight-line distance rings',()=>{
+  it('draws each ring at its stated distance from the school',()=>{
+    const school={latitude:53.55,longitude:-2.2};
+    const km=(a:[number,number])=>{const r=Math.PI/180;const dLat=(a[1]-school.latitude)*r,dLon=(a[0]-school.longitude)*r;return 12742*Math.asin(Math.sqrt(Math.sin(dLat/2)**2+Math.cos(school.latitude*r)*Math.cos(a[1]*r)*Math.sin(dLon/2)**2));};
+    for(const metres of DISTANCE_RINGS_M)for(const point of ringPolygon(school,metres,12))expect(Math.abs(km(point)*1000-metres)).toBeLessThan(2);
+  });
+});
