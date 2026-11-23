@@ -1,5 +1,8 @@
 import {createHmac,timingSafeEqual} from 'node:crypto';
 
+// Tags every Commutemap checkout so the webhook ignores payments from other sites on the same Stripe account.
+export const STRIPE_APP_TAG='commutemap';
+
 // Top-up amounts in pence. Stripe's processing fee is deducted from the credit.
 export const TOPUP_AMOUNTS_PENCE=[300,500,1000] as const;
 export type TopupAmount=typeof TOPUP_AMOUNTS_PENCE[number];
@@ -20,7 +23,7 @@ async function stripe<T>(path:string,init:{method?:'GET'|'POST';form?:Record<str
 
 export async function createCheckoutSession(userId:string,email:string|undefined,amount:TopupAmount,origin:string){
  const session=await stripe<{url:string}>('checkout/sessions',{method:'POST',form:{
-  mode:'payment','client_reference_id':userId,'metadata[user_id]':userId,'payment_intent_data[metadata][user_id]':userId,
+  mode:'payment','client_reference_id':userId,'metadata[user_id]':userId,'metadata[app]':STRIPE_APP_TAG,'payment_intent_data[metadata][user_id]':userId,'payment_intent_data[metadata][app]':STRIPE_APP_TAG,
   'line_items[0][quantity]':'1','line_items[0][price_data][currency]':'gbp','line_items[0][price_data][unit_amount]':String(amount),
   'line_items[0][price_data][product_data][name]':'Commutemap usage credit',
   'line_items[0][price_data][product_data][description]':'Pays Google for your own map lookups at cost. Not for profit; the card fee is deducted from the credit.',
@@ -30,7 +33,7 @@ export async function createCheckoutSession(userId:string,email:string|undefined
  return session.url;
 }
 
-export type CompletedSession={id:string;client_reference_id?:string|null;metadata?:{user_id?:string}|null;amount_total?:number|null;currency?:string|null;payment_status?:string;payment_intent?:string|null};
+export type CompletedSession={id:string;client_reference_id?:string|null;metadata?:{user_id?:string;app?:string}|null;amount_total?:number|null;currency?:string|null;payment_status?:string;payment_intent?:string|null};
 // The actual Stripe fee for this payment, in pence.
 export async function feeForSession(session:CompletedSession):Promise<number>{
  if(!session.payment_intent)throw new Error('Checkout session has no payment intent');

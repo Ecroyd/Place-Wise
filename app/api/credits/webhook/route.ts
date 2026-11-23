@@ -1,5 +1,5 @@
 import {getPlacewiseClient} from '@/src/lib/supabase/server';
-import {feeForSession,verifyWebhook,type CompletedSession} from '@/src/lib/server/stripe';
+import {feeForSession,STRIPE_APP_TAG,verifyWebhook,type CompletedSession} from '@/src/lib/server/stripe';
 export const runtime='nodejs';
 
 // Stripe calls this after a successful Checkout. The user is credited with what they
@@ -12,8 +12,10 @@ export async function POST(request:Request){
  const event=JSON.parse(body) as {type:string;data:{object:CompletedSession}};
  if(event.type!=='checkout.session.completed'&&event.type!=='checkout.session.async_payment_succeeded')return Response.json({received:true});
  const session=event.data.object;
+ // Ignore other sites' payments on a shared Stripe account (200 so Stripe doesn't retry).
+ if(session.metadata?.app!==STRIPE_APP_TAG)return Response.json({received:true,ignored:true});
  if(session.payment_status!=='paid')return Response.json({received:true});
- const userId=session.metadata?.user_id??session.client_reference_id;
+ const userId=session.metadata?.user_id;
  const paid=session.amount_total??0;
  if(!userId||session.currency!=='gbp'||paid<=0)return Response.json({error:'Unexpected session'},{status:400});
  try{
