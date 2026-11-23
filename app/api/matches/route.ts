@@ -1,3 +1,4 @@
+import {withPayer} from '@/src/lib/server/payer';
 import {apiLimit} from '@/src/lib/server/budget';
 import {z} from 'zod';
 import {readFile} from 'node:fs/promises';
@@ -12,7 +13,7 @@ import {routeFits,type CombinedMatch} from '@/src/lib/data/combined';
 import type {NearbyArea} from '@/src/lib/data/nearby';
 const schema=z.object({destinations:z.array(destinationSchema).min(1).max(3),center:coordinatesSchema.optional(),minimumPrice:z.number().nonnegative(),maximumPrice:z.number().positive(),school:z.object({enabled:z.boolean(),phase:z.string().max(50),rating:z.enum(['all','legacy:1','legacy:2','legacy:3','legacy:4','new:Exceptional','new:Strong standard','new:Expected standard','new:Needs attention','new:Urgent improvement']),reportArea:z.string().max(80),maximumWalkMinutes:z.number().min(1).max(60)})}).refine(v=>v.minimumPrice<=v.maximumPrice);
 interface School {country?:string;url?:string;id:string;name:string;latitude:number;longitude:number;phase:string;grades:Record<string,string>;legacy?:string}
-export async function POST(request:Request){
+async function handlePost(request:Request){
  const limited=await apiLimit(request,"matches",12);if(limited)return limited;
  const parsed=schema.safeParse(await request.json().catch(()=>null));if(!parsed.success)return Response.json({error:'Check your destinations, price range and school filters.'},{status:400});
  const {destinations,center,minimumPrice,maximumPrice,school}=parsed.data;
@@ -36,3 +37,6 @@ export async function POST(request:Request){
   return Response.json({matches,checked,areaCount:areas.length,priceFailures,routeFailures,note:`Checked ${checked} postcode locations across ${areas.length} sampled areas. Up to 12 postcodes and the 3 nearest matching schools per postcode are tested. Historic sales within your price range; postcode-centre and school-postcode routes are approximate. This is a bounded shortlist, not an exhaustive search or a guarantee of admissions or available homes.`});
  }catch(error){return Response.json({error:error instanceof Error?error.message:'Combined search unavailable'},{status:502});}
 }
+
+// Google calls made while handling this request are paid from the signed-in user's credit once the free allowance is used.
+export async function POST(request: Request) { return withPayer(request, () => handlePost(request)); }

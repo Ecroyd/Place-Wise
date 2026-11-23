@@ -1,3 +1,4 @@
+import {withPayer} from '@/src/lib/server/payer';
 import {apiLimit} from '@/src/lib/server/budget';
 import { allowedCommuteCell } from "@/src/lib/routing/detail";
 import {routeFits} from "@/src/lib/data/combined";
@@ -13,7 +14,7 @@ const schema = z.object({ destination: destinationSchema, destinations:z.array(d
 
 // Short-lived, bounded cache: traffic-aware estimates should not persist for months.
 const cache = new Map<string, { sample: CommuteSample; expires: number }>();
-export async function POST(request: Request) {
+async function handlePost(request: Request){
  const limited=await apiLimit(request,"commute",600);if(limited)return limited;
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Invalid commute heatmap request" }, { status: 400 });
@@ -69,3 +70,6 @@ export async function POST(request: Request) {
     return Response.json({ error: "Commute routing is unavailable. Please try again." }, { status: 502 });
   }
 }
+
+// Google calls made while handling this request are paid from the signed-in user's credit once the free allowance is used.
+export async function POST(request: Request) { return withPayer(request, () => handlePost(request)); }

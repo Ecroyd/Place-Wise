@@ -1,13 +1,17 @@
+import {withPayer} from '@/src/lib/server/payer';
 import {apiLimit} from '@/src/lib/server/budget';
 import { searchCriteriaSchema } from "@/src/schemas/criteria";
 import { listLocationCells } from "@/src/lib/data/locationRepository";
 import { optimise } from "@/src/lib/optimisation/engine";
 import { CachedRoutingProvider,SupabaseTravelTimeCache } from "@/src/lib/routing/cache";
 import { getLiveRoutingProvider } from "@/src/lib/routing/provider";
-export async function POST(request:Request){
+async function handlePost(request:Request){
  const limited=await apiLimit(request,"optimise",5);if(limited)return limited;
  const parsed=searchCriteriaSchema.safeParse(await request.json());
  if(!parsed.success)return Response.json({error:parsed.error.flatten()},{status:400});
  try {const cells=await listLocationCells();if(!cells.length)throw new Error("No live location cells are loaded");return Response.json(await optimise(parsed.data,cells,new CachedRoutingProvider(getLiveRoutingProvider(),new SupabaseTravelTimeCache())))}
  catch(error){return Response.json({error:error instanceof Error?error.message:"Optimisation failed"},{status:502})}
 }
+
+// Google calls made while handling this request are paid from the signed-in user's credit once the free allowance is used.
+export async function POST(request: Request) { return withPayer(request, () => handlePost(request)); }

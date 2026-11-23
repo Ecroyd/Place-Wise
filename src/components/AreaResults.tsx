@@ -6,12 +6,14 @@ import type { CombinedMatch } from "@/src/lib/data/combined";
 import { GoogleAreaMap } from "./GoogleAreaMap";
 import type { Coordinates, DestinationConstraint, TransportMode } from "@/src/types/domain";
 import type { NearbyArea } from "@/src/lib/data/nearby";
+import {authHeaders} from '@/src/lib/supabase/browser';
 
 const money = (n:number) => new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP",maximumFractionDigits:0}).format(n);
 export function AreaResults({ destinations, budget, minimumBudget,onDestinationsChange }: {onDestinationsChange?:(destinations:DestinationConstraint[])=>void; destinations: DestinationConstraint[]; budget: number; minimumBudget:number }) {
   const [effectiveDestinations,setEffectiveDestinations] = useState(destinations);
   const [combinedMatches,setCombinedMatches] = useState<CombinedMatch[]>([]);
-  const changeMode = (mode:TransportMode,index:number) => { const next=effectiveDestinations.map((d,i)=>i===index?{...d,transportMode:mode,departureTime:(mode==='any'||mode==='transit'||mode==='mixed')?(d.departureTime??new Date().toISOString()):undefined}:d);setEffectiveDestinations(next);onDestinationsChange?.(next); setFocused(undefined); };
+  const changeDeparture = (departureTime:string|undefined,index:number) => { const next=effectiveDestinations.map((d,i)=>i===index?{...d,departureTime}:d);setEffectiveDestinations(next);onDestinationsChange?.(next); };
+  const changeMode = (mode:TransportMode,index:number) => { const next=effectiveDestinations.map((d,i)=>i===index?{...d,transportMode:mode,departureTime:d.departureTime}:d);setEffectiveDestinations(next);onDestinationsChange?.(next); setFocused(undefined); };
   const [center,setCenter] = useViewField('searchPoint');
   const [areas,setAreas] = useState<NearbyArea[]>([]);
   const [centerLabel,setCenterLabel] = useState(destinations[0]?.label ?? "your destination");
@@ -26,7 +28,7 @@ export function AreaResults({ destinations, budget, minimumBudget,onDestinations
     const timer = setTimeout(async () => {
       setLoading(true); setError(undefined); setAreas([]);
       try {
-        const response = await fetch("/api/areas",{method:"POST",signal:controller.signal,headers:{"Content-Type":"application/json"},body:JSON.stringify({destination,destinations:effectiveDestinations,center,budget})});
+        const response = await fetch("/api/areas",{method:"POST",signal:controller.signal,headers:{"Content-Type":"application/json",...await authHeaders()},body:JSON.stringify({destination,destinations:effectiveDestinations,center,budget})});
         const payload = await response.json() as {areas?:NearbyArea[];centerLabel?:string;error?:string};
         if(!response.ok || !payload.areas) throw new Error(payload.error ?? "Nearby areas unavailable");
         if(controller.signal.aborted)return;
@@ -37,7 +39,7 @@ export function AreaResults({ destinations, budget, minimumBudget,onDestinations
     return () => { clearTimeout(timer); controller.abort(); };
   },[destination,effectiveDestinations,center,budget,retry]);
   return <div className="heat-layout">
-    <section className="heat-map google"><GoogleAreaMap destinations={effectiveDestinations} budget={budget} minimumBudget={minimumBudget} onModeChange={changeMode} combinedMatches={combinedMatches} selectedArea={focused} onPointSelected={selectPoint}/></section>
+    <section className="heat-map google"><GoogleAreaMap destinations={effectiveDestinations} budget={budget} minimumBudget={minimumBudget} onModeChange={changeMode} onDepartureChange={changeDeparture} combinedMatches={combinedMatches} selectedArea={focused} onPointSelected={selectPoint}/></section>
     <aside className="area-list" aria-label="Nearby areas"><CombinedMatches destinations={effectiveDestinations} center={center} minimumPrice={minimumBudget} maximumPrice={budget} onMatches={setCombinedMatches} onSelect={match=>setFocused({...match,address:match.name,minutes:match.journeys[0]?.minutes??null,withinLimits:true,reasons:[]})}/>
       <div className="area-intro"><b>Areas near {centerLabel}</b><span>Up to 8 sampled towns, ordered by travel fit.</span></div>
       <p className="demo-note">Click the map to explore nearby areas, or choose an area to locate it. House prices: {money(minimumBudget)}–{money(budget)}. Sold-price pins are filtered to this range; area averages below are comparisons.</p>

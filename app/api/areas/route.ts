@@ -1,5 +1,7 @@
+import {withPayer} from '@/src/lib/server/payer';
 import {sampleLimit} from '@/src/lib/routing/sampling';
-import {apiLimit,paidRequestBudget} from '@/src/lib/server/budget';
+import {apiLimit} from '@/src/lib/server/budget';
+import {reverseGeocode,GOOGLE_GEOCODE_TTL_MS,OPEN_GEOCODE_TTL_MS} from '@/src/lib/server/geocoding';
 import { z } from "zod";
 import { coordinatesSchema, destinationSchema } from "@/src/schemas/criteria";
 import { listLocationCells } from "@/src/lib/data/locationRepository";
@@ -9,34 +11,18 @@ import { readCached, writeCached } from "@/src/lib/server/responseCache";
 import { areaAssessment, discoveryPoints, discoveryRadius, uniqueNearbyAreas, type NamedArea, type NearbyArea } from "@/src/lib/data/nearby";
 
 const schema = z.object({ destination: destinationSchema, destinations:z.array(destinationSchema).min(1).max(3).optional(), center: coordinatesSchema.optional(), budget: z.number().positive().optional() });
-type Geocoded = { place_id: string; formatted_address: string; types: string[]; address_components: { long_name: string; types: string[] }[]; geometry: { location: { lat: number; lng: number } } };
-// Google permits caching geocoding results (place IDs, coordinates) for up to 30 days.
-const REVERSE_TTL_MS = 30 * 86400000;
 const names = new Map<string, { area: NamedArea | null; expires: number }>();
 async function reverse(point: { latitude: number; longitude: number }): Promise<NamedArea | null> {
   // ~110 m precision: nearby searches share lookups for the same neighbourhood.
   const key = `${point.latitude.toFixed(3)},${point.longitude.toFixed(3)}`;
   const cached = names.get(key);
   if (cached && cached.expires > Date.now()) return cached.area;
-  const cacheKey = "reverse-geocode:v1:" + key;
+  const cacheKey = "reverse-geocode:v2:" + key;
   const stored = (await readCached<NamedArea | null>([cacheKey]).catch(() => new Map())).get(cacheKey);
   if (stored) { names.set(key, { area: stored.payload, expires: stored.expires }); return stored.payload; }
-  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
-  if (!apiKey) throw new Error("Area lookup is not configured");
-  const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
-  url.searchParams.set("latlng", key); url.searchParams.set("key", apiKey);
-  url.searchParams.set("result_type", "locality|postal_town|sublocality|neighborhood");
-  await paidRequestBudget('geocoding');
-  const response = await fetch(url, { signal: AbortSignal.timeout(12000) });
-  if (!response.ok) throw new Error("Area lookup unavailable");
-  const payload = await response.json() as { status: string; results?: Geocoded[] };
-  if (payload.status !== "OK" && payload.status !== "ZERO_RESULTS") throw new Error("Area lookup unavailable");
-  const result = payload.results?.[0];
-  const component = result?.address_components.find(component => component.types.some(type => ["neighborhood", "sublocality", "locality", "postal_town"].includes(type)));
-  const area = result && component ? { id: result.place_id, name: component.long_name, address: result.formatted_address,
-    latitude: result.geometry.location.lat, longitude: result.geometry.location.lng } : null;
+  const { area, source } = await reverseGeocode(point);
   if (names.size >= 500) names.delete(names.keys().next().value!);
-  const expires = Date.now() + REVERSE_TTL_MS;
+  const expires = Date.now() + (source === "google" ? GOOGLE_GEOCODE_TTL_MS : OPEN_GEOCODE_TTL_MS);
   names.set(key, { area, expires });
   await writeCached([{ key: cacheKey, payload: area, expires }]).catch(() => undefined);
   return area;
@@ -48,7 +34,7 @@ async function mapLimited<T, R>(items: T[], action: (item: T) => Promise<R>): Pr
   }));
   return results;
 }
-export async function POST(request: Request) {
+async function handlePost(request: Request){
  const limited=await apiLimit(request,"areas",60);if(limited)return limited;
   const parsed = schema.safeParse(await request.json().catch(() => null));
   if (!parsed.success) return Response.json({ error: "Invalid nearby-area search" }, { status: 400 });
@@ -62,6 +48,12 @@ export async function POST(request: Request) {
       listLocationCells().catch(() => []),
     ]);
     if (lookupFailures === named.length) throw new Error("Nearby area lookup is temporarily unavailable");
+    // When searching around the destination itself, its spot is the place the person
+    // typed in (e.g. "Middleton, Rochdale"); open data can label it a nearby neighbourhood.
+    if (!parsed.data.center && named[0]) {
+      const [name, ...rest] = destination.label.split(",").map(part => part.trim());
+      named[0] = { ...named[0], id: "destination:" + destination.id, name, address: [name, ...rest].join(", "), latitude: center.latitude, longitude: center.longitude };
+    }
     const areas = uniqueNearbyAreas(named.filter((area): area is NamedArea => area !== null), center, radius);
     const destinations=parsed.data.destinations??[destination];
     const checked = areas.slice(0,Math.min(8,sampleLimit(destinations,32)));
@@ -80,3 +72,6 @@ export async function POST(request: Request) {
     return Response.json({ error: error instanceof Error ? error.message : "Nearby areas unavailable" }, { status: 502 });
   }
 }
+
+// Google calls made while handling this request are paid from the signed-in user's credit once the free allowance is used.
+export async function POST(request: Request) { return withPayer(request, () => handlePost(request)); }

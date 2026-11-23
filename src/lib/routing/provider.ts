@@ -1,5 +1,6 @@
 import {SharedRoutingProvider} from './shared';
 import { GoogleRoutesProvider } from "./google";
+import {HybridRoutingProvider,OpenRouteServiceProvider,OPEN_ROUTE_TTL_MS} from "./open";
 export { GoogleRoutesProvider } from "./google";
 import type { Coordinates, TransportMode, JourneyStep } from "@/src/types/domain";
 export interface RoutingOptions { transportMode:TransportMode; timeProfile?:string; departureTime?:string }
@@ -16,7 +17,7 @@ export class OsrmRoutingProvider implements RoutingProvider {
  async getTravelTime(origin:Coordinates,destination:Coordinates,options:RoutingOptions):Promise<TravelTimeResult>{
   if(options.transportMode!=="drive")throw new Error("Live walking, cycling and transit routing are not enabled yet");
   const coordinates=`${origin.longitude},${origin.latitude};${destination.longitude},${destination.latitude}`;
-  const response=await fetch(`${this.endpoint}/route/v1/driving/${coordinates}?overview=false&steps=false`,{headers:{"User-Agent":"Placewise/0.1"}});
+  const response=await fetch(`${this.endpoint}/route/v1/driving/${coordinates}?overview=false&steps=false`,{headers:{"User-Agent":"Commutemap/0.1"}});
   if(!response.ok)throw new Error("Live road routing failed ("+response.status+")");
   const payload=await response.json() as {code:string;routes?:{duration:number;distance:number}[];message?:string};
   if(payload.code!=="Ok"||!payload.routes?.[0])throw new Error(payload.message??"No road route was found");
@@ -27,6 +28,12 @@ export class OsrmRoutingProvider implements RoutingProvider {
 }
 export function getLiveRoutingProvider(mode?:TransportMode):RoutingProvider {
  const key=process.env.GOOGLE_MAPS_API_KEY;
+ const googleReady=process.env.ROUTING_PROVIDER!=="osrm"&&!!key?.startsWith("AIza");
+ // With an open router configured, driving (typical traffic), walking and cycling use
+ // OpenStreetMap routing that may be stored for months; Google is kept for transit.
+ if(process.env.ORS_API_KEY||process.env.ORS_URL){
+  return new HybridRoutingProvider(new SharedRoutingProvider(new OpenRouteServiceProvider(),{staticTtlMs:OPEN_ROUTE_TTL_MS}),googleReady?new SharedRoutingProvider(new GoogleRoutesProvider(key)):null);
+ }
  if(mode && mode!=="drive" && (process.env.ROUTING_PROVIDER==="osrm" || !key?.startsWith("AIza"))) throw new Error("Public transport, walking and cycling require Google routing; driving routes cannot be substituted.");
  return new SharedRoutingProvider(process.env.ROUTING_PROVIDER!=="osrm"&&key?.startsWith("AIza")?new GoogleRoutesProvider(key):new OsrmRoutingProvider());
 }

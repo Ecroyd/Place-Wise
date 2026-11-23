@@ -7,3 +7,9 @@ function createBrowserClient(){
 }
 let client:ReturnType<typeof createBrowserClient>|undefined;
 export function getBrowserClient(){return client??=createBrowserClient();}
+// Lets the server charge Google calls to the signed-in user's usage credit once the
+// shared free allowance runs out. Signed-out requests send nothing.
+export async function authHeaders():Promise<Record<string,string>>{
+ try{const {data}=await getBrowserClient().auth.getSession();const token=data.session?.access_token;return token?{Authorization:'Bearer '+token}:{};}
+ catch{return {};}
+}

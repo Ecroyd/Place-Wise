@@ -1,5 +1,6 @@
 import {createHash} from 'node:crypto';
 import {getPlacewiseClient} from '@/src/lib/supabase/server';
+import {currentPayer} from '@/src/lib/server/payer';
 export class RequestBudgetError extends Error {constructor(message:string,public retryAfter=60){super(message);this.name='RoutingUnavailableError';}}
 const buckets=new Map<string,{used:number;expires:number}>();
 export function consumeLocalBudget(key:string,maximum:number,windowSeconds:number,now=Date.now(),amount=1){
@@ -42,13 +43,43 @@ export function googleMonthlyLimit(sku:GoogleSku,env:Record<string,string|undefi
  return Math.floor(GOOGLE_FREE_MONTHLY[sku]*share);
 }
 const MONTH_WINDOW=32*86400;
+// Google's list price per 1,000 calls above the free allowance (USD).
+export const GOOGLE_USD_PER_1000:Record<GoogleSku,number>={geocoding:5,routes:5,'routes-pro':10,matrix:5,'matrix-pro':10};
+// Credit is held in hundredths of a penny; this is the at-cost price of one call.
+export function creditPerUnit(sku:GoogleSku,env:Record<string,string|undefined>=process.env){
+ const rateValue=Number(env.GOOGLE_USD_TO_GBP??0.8);const rate=Number.isFinite(rateValue)&&rateValue>0?rateValue:0.8;
+ return Math.max(1,Math.ceil(Math.round(GOOGLE_USD_PER_1000[sku]*rate*10*1e6)/1e6));
+}
+export function paidCeiling(env:Record<string,string|undefined>=process.env){return (positiveInteger(env.GOOGLE_PAID_MONTHLY_CEILING_PENCE)??2000)*100;}
 export async function paidRequestBudget(sku:GoogleSku,count=1){
- const amount=Math.max(1,Math.ceil(count));const now=new Date().toISOString();
+ const amount=Math.max(1,Math.ceil(count));
+ try{await consumeFreeAllowance(sku,amount);}
+ catch(error){
+  if(!(error instanceof RequestBudgetError)||error.message.startsWith('Request protection'))throw error;
+  const payer=currentPayer();
+  if(!payer)throw new RequestBudgetError(error.message+' Sign in and add usage credit to keep going.',error.retryAfter);
+  await spendCredit(payer.userId,sku,amount);
+ }
+}
+async function consumeFreeAllowance(sku:GoogleSku,amount:number){
+ const now=new Date().toISOString();
  if(!await consumeUnits('google-sku:'+sku+':'+now.slice(0,7),googleMonthlyLimit(sku),MONTH_WINDOW,amount))throw new RequestBudgetError(`The free monthly ${SKU_LABEL[sku]} allowance has been used. Cached results remain available.`,86400);
  const overall=positiveInteger(process.env.GOOGLE_REQUESTS_PER_MONTH);
  if(overall&&!await consumeUnits('google-month:'+now.slice(0,7),overall,MONTH_WINDOW,amount))throw new RequestBudgetError('The monthly map request limit has been reached. Cached routes remain available.',86400);
  const daily=positiveInteger(process.env.GOOGLE_REQUESTS_PER_DAY)??500;
- if(!await consumeUnits('google:'+now.slice(0,10),daily,86400,amount))throw new RequestBudgetError('The daily map request limit has been reached. Please try again tomorrow.',86400);
+ if(!await consumeUnits('google:'+now.slice(0,10),daily,86400,amount))throw new RequestBudgetError('The daily free map request limit has been reached.',86400);
+}
+// Credit first, then the shared paid ceiling, so people without credit cannot use up the ceiling.
+async function spendCredit(userId:string,sku:GoogleSku,units:number){
+ if(!process.env.NEXT_PUBLIC_SUPABASE_URL||!process.env.SUPABASE_SECRET_KEY)throw new RequestBudgetError('Usage credit is not available here.');
+ const cost=creditPerUnit(sku)*units;const client=getPlacewiseClient();
+ const spent=await client.rpc('spend_credit',{p_user:userId,p_amount:cost,p_sku:sku,p_units:units});
+ if(spent.error)throw new RequestBudgetError('Request protection is temporarily unavailable. Please try again shortly.');
+ if(spent.data!==true)throw new RequestBudgetError('The free allowance has been used and your usage credit is too low. Top up in your account to keep going.',86400);
+ let allowed=false;
+ try{allowed=await consumeUnits('google-paid:'+new Date().toISOString().slice(0,7),paidCeiling(),MONTH_WINDOW,cost);}
+ finally{if(!allowed)await client.rpc('refund_credit',{p_user:userId,p_amount:cost,p_sku:sku,p_units:units});}
+ if(!allowed)throw new RequestBudgetError('Paid usage has reached this month\'s safety ceiling. Your credit was not charged.',86400);
 }
 export async function consumeUnits(key:string,maximum:number,windowSeconds:number,amount:number){
  if(process.env.NEXT_PUBLIC_SUPABASE_URL&&process.env.SUPABASE_SECRET_KEY){

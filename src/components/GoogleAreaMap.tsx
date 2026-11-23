@@ -8,9 +8,11 @@ import type { Map as MapLibreMap, Popup, Marker } from "maplibre-gl";
 import type { Coordinates, DestinationConstraint, JourneyStep, TransportMode } from "@/src/types/domain";
 import { commuteGrid, sharedCommuteGrid, commuteColour, commuteLimits, gridCellAt, withinTravelTime, type CommuteSample } from "@/src/lib/routing/commute";
 
-import {overviewSamples,DETAIL_ROUTE_BUDGET} from '@/src/lib/routing/sampling';
+import {overviewSamples,overviewDisplayGrid,displaySampleAt,DETAIL_ROUTE_BUDGET} from '@/src/lib/routing/sampling';
 import { commuteDetailGrid } from "@/src/lib/routing/detail";
+import {authHeaders} from '@/src/lib/supabase/browser';
 
+const localInput = (iso: string) => { const date = new Date(iso); return new Date(date.getTime() - date.getTimezoneOffset() * 60000).toISOString().slice(0, 16); };
 const modeLabel = (mode?: TransportMode) => mode ? ({any:"Any travel mode",drive:"Driving",transit:"Public transport",mixed:"Public transport",walk:"Walking",cycle:"Cycling"})[mode] : "";
 
 function useCompactMapChrome(query = "(max-width: 900px)") {
@@ -25,7 +27,7 @@ function useCompactMapChrome(query = "(max-width: 900px)") {
   return compact;
 }
 
-export function GoogleAreaMap({ destinations, selectedArea, onPointSelected, budget=500000, minimumBudget=0, onModeChange, combinedMatches=[] }: { destinations: DestinationConstraint[]; budget?:number; minimumBudget?:number; onModeChange?:(mode:TransportMode,index:number)=>void; combinedMatches?:CombinedMatch[]; selectedArea?: Coordinates & {minutes:number|null;selectedMode?:TransportMode}; onPointSelected?: (point:Coordinates)=>void }) {
+export function GoogleAreaMap({ destinations, selectedArea, onPointSelected, budget=500000, minimumBudget=0, onModeChange, onDepartureChange, combinedMatches=[] }: { destinations: DestinationConstraint[]; budget?:number; minimumBudget?:number; onModeChange?:(mode:TransportMode,index:number)=>void; onDepartureChange?: (departureTime: string | undefined, index: number) => void; combinedMatches?:CombinedMatch[]; selectedArea?: Coordinates & {minutes:number|null;selectedMode?:TransportMode}; onPointSelected?: (point:Coordinates)=>void }) {
   const {view,setView}=useSearchView();
   const initialView=useRef(view.viewport);
   const maskId = useId().replace(/:/g, "");
@@ -139,6 +141,7 @@ export function GoogleAreaMap({ destinations, selectedArea, onPointSelected, bud
         const detailCache = new Map<string, { sample: CommuteSample; expires: number }>();
         const targets=allDestinations?destinations:[baseDestination];
         const ids = overviewSamples(generated,targets);
+        const display = overviewDisplayGrid(generated, ids);
         setProgress({ done: 0, total: ids.length, missing: 0 });
         map = new maplibre.Map({
           container: element.current, center: initialView.current?[initialView.current.longitude,initialView.current.latitude]:[destination.longitude, destination.latitude], zoom: initialView.current?.zoom??9,
@@ -210,7 +213,7 @@ export function GoogleAreaMap({ destinations, selectedArea, onPointSelected, bud
             for (let offset = 0; offset < missing.length; offset += 16) {
               if (active.signal.aborted || controller.signal.aborted) return;
               const response = await fetch("/api/commute", { method: "POST", signal: active.signal,
-                headers: { "Content-Type": "application/json" }, body: JSON.stringify({ destination: baseDestination, destinations: allDestinations ? destinations : undefined, cells: missing.slice(offset, offset + 16) }),
+                headers: { "Content-Type": "application/json" ,...await authHeaders()}, body: JSON.stringify({ destination: baseDestination, destinations: allDestinations ? destinations : undefined, cells: missing.slice(offset, offset + 16) }),
               });
               const payload = await response.json() as { samples?: CommuteSample[]; error?: string };
               if (!response.ok || !payload.samples) throw new Error(payload.error ?? "Detail could not load.");
@@ -231,7 +234,7 @@ export function GoogleAreaMap({ destinations, selectedArea, onPointSelected, bud
         map.on("moveend",()=>{if(!map||controller.signal.aborted)return;const centre=map.getCenter();setView(old=>({...old,viewport:{latitude:centre.lat,longitude:centre.lng,zoom:map!.getZoom()}}));});
         map.on("load", () => {
           if (!map || controller.signal.aborted) return;
-          setPaths(makePaths(generated));
+          setPaths(makePaths(display));
           const fitArea = (duration = 600) => {
             if (!map || controller.signal.aborted) return;
             const times = new Map(samplesRef.current.map(sample => [sample.id, sample.minutes]));
@@ -283,7 +286,8 @@ export function GoogleAreaMap({ destinations, selectedArea, onPointSelected, bud
             pointCallback.current?.({latitude:event.lngLat.lat,longitude:event.lngLat.lng});
             const point = { latitude: event.lngLat.lat, longitude: event.lngLat.lng };
             const detailCell = gridCellAt(detailGrid, point);
-            const cell = detailCell ?? gridCellAt(generated, point);
+            const overviewId = detailCell ? undefined : displaySampleAt(display, point);
+            const cell = detailCell ?? (overviewId ? { properties: { id: overviewId } } : gridCellAt(generated, point));
             if (!cell) return;
             const sample = (detailCell ? currentDetailSamples : samplesRef.current).find(sample => sample.id === cell.properties.id);
             setSelected(sample?.minutes ?? null);
@@ -311,7 +315,7 @@ export function GoogleAreaMap({ destinations, selectedArea, onPointSelected, bud
             for (let offset = samples.length; offset < ids.length; offset += 16) {
               if(!visibleRef.current||controller.signal.aborted)return;
               const response = await fetch("/api/commute", { method: "POST", signal: controller.signal,
-                headers: { "Content-Type": "application/json" }, body: JSON.stringify({ destination:baseDestination, destinations:allDestinations?destinations:undefined, cells: ids.slice(offset, offset + 16) }),
+                headers: { "Content-Type": "application/json" ,...await authHeaders()}, body: JSON.stringify({ destination:baseDestination, destinations:allDestinations?destinations:undefined, cells: ids.slice(offset, offset + 16) }),
               });
               const payload = await response.json() as { samples?: CommuteSample[]; error?: string };
               if (!response.ok || !payload.samples) throw new Error(payload.error ?? "Commute times could not load.");
@@ -356,6 +360,10 @@ export function GoogleAreaMap({ destinations, selectedArea, onPointSelected, bud
   const minutesById = new Map(samples.map(sample => [sample.id, sample.minutes]));
   const detailMinutes = new Map(detailSamples.map(sample => [sample.id, sample.minutes]));
   const reachable = destination ? samples.filter(sample => withinTravelTime(sample.minutes, destination)).length : 0;
+  const timed = (allDestinations ? destinations : destination ? [destination] : []).find(item => item.departureTime);
+  const timeBasis = timed?.departureTime
+    ? `Leaving ${new Date(timed.departureTime).toLocaleString("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" })} · live traffic and timetables`
+    : "Typical journey times · add a time for live traffic and public transport";
   const calloutTitle = selected == null
     ? (allDestinations ? "Shared commute area" : `${limits.minimum}–${limits.maximum} minutes`)
     : `${selected}${allDestinations ? "% of time limit" : " minutes"}`;
@@ -429,17 +437,21 @@ export function GoogleAreaMap({ destinations, selectedArea, onPointSelected, bud
           {allDestinations&&<option value="multi">Each destination’s own mode</option>}<option value="any">Any travel mode — fastest available</option><option value="drive">Driving</option><option value="transit">Public transport + walking (bus, train, tram)</option><option value="cycle">Cycling</option><option value="walk">Walking</option>{destination?.transportMode==='mixed'&&<option value="mixed">Public transport + walking</option>}
         </select>
         {allDestinations&&<small>Overlap uses each destination’s own mode, time and distance limits. Choose a destination above to edit its travel mode.</small>}
-        {!allDestinations&&destination?.departureTime&&<small>Leaving {new Date(destination.departureTime).toLocaleString("en-GB",{weekday:"short",hour:"2-digit",minute:"2-digit",day:"numeric",month:"short"})} · {destination.transportMode === "any" ? "fastest available travel mode" : "walking + all public transport"}</small>}
+        {!allDestinations&&<>
+          <label htmlFor="commute-departure">{destination?.transportMode==="transit"||destination?.transportMode==="mixed"?"When are you travelling? (needed for public transport)":"When are you travelling? (optional)"}</label>
+          <input id="commute-departure" type="datetime-local" value={destination?.departureTime?localInput(destination.departureTime):""} onChange={event=>onDepartureChange?.(event.target.value?new Date(event.target.value).toISOString():undefined,Math.max(0,destinationIndex))}/>
+          <small>{destination?.departureTime?"Using live traffic and timetables for this time. Clear it to see typical journey times.":"Showing typical journey times. Add a day and time for public transport and live traffic."}</small>
+        </>}
         {destination?.transportMode==="any"&&<small>Compares driving, public transport, cycling and walking.</small>}
         <button className="fit-area-button" onClick={()=>fitAreaRef.current?.()}>Show whole commute area</button>
         <strong>{allDestinations?"Within every destination’s limits":`${limits.minimum}–${limits.maximum} minutes`}</strong>
         <label className="commute-toggle"><input type="checkbox" checked={visible} onChange={event => setVisible(event.target.checked)} /> Show travel-time area</label>
         <label htmlFor="commute-opacity">Shading strength · {shading}%</label>
-        <input id="commute-opacity" type="range" min="10" max="60" step="1" value={shading} onChange={event => setShading(Number(event.target.value))} />
+        <input id="commute-opacity" type="range" min="10" max="80" step="1" value={shading} onChange={event => setShading(Number(event.target.value))} />
         <small>Low-usage preview: a spread of independently checked points. Unshaded gaps are untested, not necessarily outside your limits. Zooming does not request more routes.</small>
         <button className="fit-area-button" onClick={()=>requestDetailRef.current?.()}>Check detail in this view</button>
         {detailStatus && <small role="status">{detailStatus}</small>}
-        <small role="status">{routeError ? "Heatmap incomplete" : progress.done < progress.total ? `Checking routes: ${progress.done} / ${progress.total}` : `${reachable} sample points within range${progress.missing ? ` · ${progress.missing} ${allDestinations?"outside limits or unavailable":"unavailable"}` : ""}`}</small>
+        <small role="status">{routeError ? routeError : progress.done < progress.total ? `Checking routes: ${progress.done} / ${progress.total}` : `${reachable} sample points within range${progress.missing ? ` · ${progress.missing} ${allDestinations?"outside limits or unavailable":"unavailable"}` : ""}`}</small>
         {routeError && <div className="commute-error" role="alert">{routeError} <button onClick={() => setRetry(value => value + 1)}>Retry</button></div>}
       </div>
     </details>
@@ -452,9 +464,11 @@ export function GoogleAreaMap({ destinations, selectedArea, onPointSelected, bud
       <summary>
         <span className="eyebrow">Your travel-time area</span>
         <strong>{calloutTitle}</strong>
+        <small className="time-basis">{timeBasis}</small>
       </summary>
       <div className="heat-callout-body">
         <h2>{calloutTitle}</h2>
+        <small className="time-basis">{timeBasis}</small>
         <p>{selected === null ? allDestinations?"No shared commute match at this sample point.":"Journey time unavailable at this point." : `One-way journeys to ${destination?.label ?? "your destination"}.`}</p>
         {selectedMode&&<small><b>{destination?.transportMode==="any"?"Fastest available: ":"Travel mode: "}{modeLabel(selectedMode)}</b></small>}
         {journey.length>0&&<ol className="journey-steps" aria-label="Journey steps">{journey.map((step,index)=><li key={index}><b>{step.mode}{step.line?` ${step.line}`:""} · {step.minutes} min</b>{(step.from||step.to)&&<span>{step.from}{step.to?` → ${step.to}`:""}</span>}</li>)}</ol>}

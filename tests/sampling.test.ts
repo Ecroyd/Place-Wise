@@ -17,3 +17,22 @@ describe('low cost route sampling',()=>{
   expect(overviewSamples({type:'FeatureCollection',features:[]},[a])).toEqual([]);
  });
 });
+
+import {overviewDisplayGrid,displaySampleAt} from '../src/lib/routing/sampling';
+import {commuteGrid as gridFor} from '../src/lib/routing/commute';
+import {getHexagonAreaAvg,getResolution,UNITS,cellToLatLng} from 'h3-js';
+describe('overview display',()=>{
+ it('draws each sample as a hexagon sized to the sample spacing, keeping its routed id',()=>{
+  const destination={id:'d',label:'Middleton',purpose:'Work',latitude:53.55,longitude:-2.2,transportMode:'drive' as const,journeysPerWeek:5,minimumMinutes:10,maximumMinutes:60,preferredMinutes:30,weight:100,hardMaximum:true};
+  const grid=gridFor(destination);
+  const ids=overviewSamples(grid,[destination]);
+  const display=overviewDisplayGrid(grid,ids);
+  expect(display.features.map(f=>f.properties.id)).toEqual(ids);
+  const fine=getHexagonAreaAvg(getResolution(ids[0]),UNITS.km2);
+  const drawn=[...display.cellFor.keys()].map(id=>getHexagonAreaAvg(getResolution(id),UNITS.km2));
+  expect(Math.max(...drawn)).toBeGreaterThan(fine*5);
+  expect(new Set(display.cellFor.keys()).size).toBe(ids.length);
+  const [cell,id]=[...display.cellFor.entries()][0];const [lat,lng]=cellToLatLng(cell);
+  expect(displaySampleAt(display,{latitude:lat,longitude:lng})).toBe(id);
+ });
+});

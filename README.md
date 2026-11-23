@@ -154,6 +154,36 @@ Saved searches also include enabled layers, school country/sector/phase/inspecti
 
 Apply `202609280002_routing_controls.sql` before deploying this build. Routes are cached in a server-only Supabase table and reused across destinations and server instances: walking, cycling and typical-traffic driving for 24 hours, and time-dependent journeys (public transport, or driving with a chosen departure time) for five minutes. Driving uses typical traffic (Google's cheaper Essentials tier) unless a departure time is set, which switches to traffic-aware routing. Heatmap and area batches use Compute Route Matrix for driving, walking and cycling; "any" mode only requests walking or cycling where they could beat the best drive or transit time. Forward and reverse geocoding results are cached for 30 days. Concurrent identical lookups within a process share one request. Expired rows are cleaned during budget checks. Public endpoints have five-minute request limits; Vercel's trusted forwarded IP is hashed, and other hosts conservatively share one bucket. Configure trusted client identity before scaling on another host. Google route and geocoding calls are also limited by the free-tier usage guard (below). Each Route Matrix element counts as one unit. Budget checks fail closed if Supabase is unavailable; test/development environments without Supabase use an in-memory limiter. Multi-server cache misses may still race, but the global budget remains atomic.
 
+### Open routing and route reuse
+
+Set `ORS_API_KEY` (free OpenRouteService account) or `ORS_URL` (self-hosted OpenRouteService) to route driving, walking and cycling from OpenStreetMap instead of Google.
+
+**Google (paid) is only used when a departure time is chosen.** The search form and the map panel both have an optional "Leave at" time:
+- **No time:** driving (typical traffic), walking and cycling use open routing. Public transport is unavailable, and "any" compares driving, walking and cycling only.
+- **Time chosen:** public transport timetables and live-traffic driving come from Google.
+
+If the open router is unavailable or over its limit, untimed points fall back to Google. A point with no route does not fall back.
+
+**Place lookups are open too.** Full postcodes and outcodes use postcodes.io (ONS). Place names use Ordnance Survey Open Names through postcodes.io, ranked City > Town > Suburban area > Village, so "Middleton" means the Rochdale town; add a qualifier like "Middleton, Leeds" for another one. Other addresses use OpenRouteService geocoding. Nearby area names use OpenRouteService reverse geocoding, and the destination's own card keeps the name that was searched. Google geocoding is only a last resort. Open lookups are cached for 180 days; Google ones for 30.
+
+- **Stored for months:** open-router results are open data (ODbL), so they are cached in `route_response_cache` for `OPEN_ROUTE_TTL_DAYS` (default 90) and reused by every user. Google results keep their short cache (24 hours or 5 minutes) because Google's terms don't allow storing them.
+- **Batching:** the ORS matrix API routes up to 50 origins per request. If one point can't be routed (sea, moorland), ORS rejects the whole request, so the batch is split until that point is isolated.
+- **"Any" mode:** checks driving, walking and cycling for every point (they're free), plus Google public transport, and keeps the fastest.
+- **Destination snapping:** all routing snaps the destination to the centre of a ~170 m H3 cell (resolution 9), so searches for nearby addresses share cached routes. Journey times can shift by about a minute's walk.
+- OpenStreetMap / OpenRouteService attribution applies to these results.
+
+### Usage credit (per-user top-ups)
+
+Apply `202611230002_usage_credits.sql` before deploying. Place-wise is not run for profit: once the shared free allowance for a Google SKU is used, signed-in people can keep going by paying for their own calls at Google's list price. Signed-out requests still stop at the free allowance.
+
+- **Top-ups:** £3, £5 or £10 through Stripe Checkout. The user is credited with what they paid minus Stripe's actual fee, which is read from the payment's balance transaction. The credit is recorded once per Checkout session, so replayed webhooks credit nothing.
+- **Pricing:** credit is held in hundredths of a penny. Each call costs Google's list price per 1,000 (`GOOGLE_USD_PER_1000` in `budget.ts`: Essentials $5, Pro $10) converted at `GOOGLE_USD_TO_GBP` (default `0.80`). At that rate a journey or map point costs 0.4p, and a traffic-aware one 0.8p.
+- **Order:** the free allowance is tried first, then the user's credit is taken atomically, then the shared monthly paid ceiling (`GOOGLE_PAID_MONTHLY_CEILING_PENCE`, default 2000 = £20). If the ceiling is reached, the credit is refunded. Credit is taken before the ceiling is checked, so people without credit can't use it up.
+- **Identity:** the browser sends its Supabase access token on Google-backed requests. `withPayer` resolves the user once per request and makes them available to the budget through `AsyncLocalStorage`.
+- **Google-side quotas** must allow the paid ceiling on top of the free allowance, or paid calls are refused by Google.
+
+Environment: `STRIPE_SECRET_KEY` (use a test key until you're ready), `STRIPE_WEBHOOK_SECRET`, and optionally `NEXT_PUBLIC_SITE_URL`, `GOOGLE_USD_TO_GBP` and `GOOGLE_PAID_MONTHLY_CEILING_PENCE`. In Stripe, add a webhook endpoint at `https://<your-site>/api/credits/webhook` for `checkout.session.completed` and `checkout.session.async_payment_succeeded`.
+
 ### Low-usage heatmap
 
 The overview routes at most 96 driving sample points. Multiple destinations and modes divide that sample budget: two driving destinations use at most 48 origins; any-mode comparisons use at most 19. Fine hexagons are retained, but only individually checked cells are shaded, so this is a sparse preview rather than continuous coverage. Zooming/panning does not automatically request more routes. The explicit detail button allows a further 48 route-call budget per view (fewer origins for extra destinations/modes), with cached results reused. Hiding the travel-time layer pauses overview work after the current batch, and showing it resumes the remaining samples. Nearby comparisons use nine geographical lookups and at most eight towns, bounded further for expensive mode combinations.

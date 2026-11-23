@@ -93,7 +93,7 @@ const ok = (value: TravelTimeResult): Settled => ({ status: "fulfilled", value }
 const failed = (reason: unknown): Settled => ({ status: "rejected", reason });
 const latLng = (point: Coordinates) => ({ latLng: { latitude: point.latitude, longitude: point.longitude } });
 
-function fastest(results: Settled[]): Settled {
+export function fastest(results: Settled[]): Settled {
   const available = results.flatMap(result => result.status === "fulfilled" ? [result.value] : []);
   if (available.length) return ok(available.sort((a, b) => a.minutes - b.minutes)[0]);
   const error = results.find(result => result.status === "rejected" && result.reason?.name !== "NoRouteError");
