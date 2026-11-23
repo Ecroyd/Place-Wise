@@ -26,7 +26,7 @@ async function reverse(point: { latitude: number; longitude: number }): Promise<
   const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
   url.searchParams.set("latlng", key); url.searchParams.set("key", apiKey);
   url.searchParams.set("result_type", "locality|postal_town|sublocality|neighborhood");
-  await paidRequestBudget();
+  await paidRequestBudget('geocoding');
   const response = await fetch(url, { signal: AbortSignal.timeout(12000) });
   if (!response.ok) throw new Error("Area lookup unavailable");
   const payload = await response.json() as { status: string; results?: Geocoded[] };

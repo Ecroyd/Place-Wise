@@ -20,7 +20,7 @@ export async function POST(request:Request){
  const url=new URL("https://maps.googleapis.com/maps/api/geocode/json");
  url.searchParams.set("address",parsed.data.address+", UK");url.searchParams.set("region","uk");url.searchParams.set("key",key);
  try {
- await paidRequestBudget();
+ await paidRequestBudget('geocoding');
  const response=await fetch(url,{signal:AbortSignal.timeout(15000)});const payload=await response.json() as {status:string;error_message?:string;results?:{formatted_address:string;geometry:{location:{lat:number;lng:number}}}[]};
  const result=payload.results?.[0];
  if(payload.status!=="OK"||!result)return Response.json({error:payload.error_message??"Destination not found"},{status:404});

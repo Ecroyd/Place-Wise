@@ -1,4 +1,4 @@
-import {paidRequestBudget} from '@/src/lib/server/budget';
+import {paidRequestBudget, type GoogleSku} from '@/src/lib/server/budget';
 import type { Coordinates } from "@/src/types/domain";
 import type { JourneyStep } from "@/src/types/domain";
 import type { RoutingOptions, RoutingProvider, TravelTimeResult } from "./provider";
@@ -77,6 +77,11 @@ export function fastestPossibleMinutes(km: number, mode: "walk" | "cycle") {
 }
 // Traffic-aware routing bills at Google's higher Pro tier. Only pay for it when
 // the user chose a departure time; otherwise use the cheaper typical-traffic route.
+// Traffic-aware driving is billed at Google's Pro tier; everything else here is Essentials.
+export function googleSku(api: "routes" | "matrix", body: Record<string, unknown>): GoogleSku {
+  const pro = body.routingPreference === "TRAFFIC_AWARE" || body.routingPreference === "TRAFFIC_AWARE_OPTIMAL";
+  return pro ? `${api}-pro` : api;
+}
 export function drivePreferences(options: RoutingOptions): Record<string, unknown> {
   if (!options.departureTime) return { routingPreference: "TRAFFIC_UNAWARE" };
   const departure = Date.parse(options.departureTime);
@@ -157,7 +162,7 @@ export class GoogleRoutesProvider implements RoutingProvider {
       destinations: [{ waypoint: { location: latLng(destination) } }], travelMode, ...(travelMode === "DRIVE" ? drivePreferences(options) : {}) };
     let elements: MatrixElement[];
     try {
-      await paidRequestBudget(origins.length);
+      await paidRequestBudget(googleSku("matrix", body), origins.length);
       const response = await fetch(MATRIX_URL, { method: "POST", signal: AbortSignal.timeout(20000),
         headers: { "Content-Type": "application/json", "X-Goog-Api-Key": this.apiKey!, "X-Goog-FieldMask": "originIndex,destinationIndex,condition,duration,distanceMeters,status" },
         body: JSON.stringify(body) });
@@ -185,7 +190,7 @@ export class GoogleRoutesProvider implements RoutingProvider {
         body.computeAlternativeRoutes = true;
         // Leaving transitPreferences unrestricted permits buses, rail, trams and transfers.
       }
-      await paidRequestBudget();
+      await paidRequestBudget(googleSku("routes", body));
       const response = await fetch(ROUTES_URL, {
         method: "POST", signal: AbortSignal.timeout(20000),
         headers: { "Content-Type": "application/json", "X-Goog-Api-Key": this.apiKey!,
