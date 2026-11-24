@@ -1,6 +1,7 @@
 import type {DestinationConstraint} from '@/src/types/domain';
 import {cellsToMultiPolygon,getResolution,latLngToCell} from 'h3-js';
 import {distanceKm,sampleOrigin,samplingRadiusKm,type commuteGrid} from './commute';
+import {landTiles,onLand} from './land';
 export const OVERVIEW_ROUTE_BUDGET=96;
 export const DETAIL_ROUTE_BUDGET=48;
 // Open routing (OpenRouteService) is free and answers ~50 points per call, so untimed
@@ -22,6 +23,8 @@ export function sampleLimit(destinations:DestinationConstraint[],budget=OVERVIEW
 // destination, where short commutes vary most, and spread out with distance.
 export function overviewSamples(grid:ReturnType<typeof commuteGrid>,destinations:DestinationConstraint[],budget=OVERVIEW_ROUTE_BUDGET){
  const points=grid.features.map(feature=>({id:feature.properties.id,point:sampleOrigin(feature.properties.id),nearest:Infinity,weight:1})).filter(({point})=>destinations.every(d=>d.maximumDistanceKm===undefined||distanceKm(point,d)<=d.maximumDistanceKm+1));
+ // Never spend a route check on open water.
+ const dry=points.filter(item=>onLand(item.point));if(dry.length)points.splice(0,points.length,...dry);
  const limit=sampleLimit(destinations,budget);if(points.length<=limit)return points.map(p=>p.id);
  // Spacing grows roughly linearly with distance: about 12x wider at the edge than at the centre.
  const core=Math.max(1,Math.min(...destinations.map(samplingRadiusKm))*0.09);
@@ -41,7 +44,7 @@ type Grid=ReturnType<typeof commuteGrid>;
 export function overviewDisplayGrid(grid:Grid,ids:string[]):Grid&{cellFor:Map<string,string>}{
  const cellFor=new Map<string,string>();
  if(!ids.length||!grid.features.length)return {...grid,features:[],cellFor};
- const tiles=grid.features.map(f=>f.properties.id);
+ const tiles=landTiles(grid.features.map(f=>f.properties.id));
  const samples=ids.map(id=>({id,...sampleOrigin(id)}));
  const scale=Math.cos(samples[0].latitude*Math.PI/180);
  // Bucket samples on a coarse lat/lng grid so each tile only checks nearby samples.
