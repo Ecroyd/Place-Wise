@@ -268,3 +268,6 @@ button { cursor:pointer; }
 .distance-ring-label{background:#fffdf8;color:#4a2f74;border:1px solid #6944a560;border-radius:999px;padding:1px 7px;font:700 11px/1.5 system-ui,sans-serif;box-shadow:0 1px 4px #0002;pointer-events:none;transform:translateY(-50%)}
 .distance-ring-card{position:absolute;left:50%;transform:translateX(-50%);bottom:16px;z-index:5;max-width:min(460px,calc(100% - 32px));margin:0;background:#fffdf8f5;border:1px solid #6944a540;border-radius:12px;padding:10px 13px;font-size:12px;line-height:1.5;color:#3d2a5c;box-shadow:0 4px 18px #18332c22}
 @media(max-width:900px){.distance-ring-card{bottom:auto;top:60px}}
+.apply-view-btn{position:absolute;top:16px;left:50%;transform:translateX(-50%);z-index:7;border:0;border-radius:999px;background:#18332c;color:white;font:inherit;font-size:13px;font-weight:800;padding:10px 18px;box-shadow:0 6px 20px #18332c40;cursor:pointer}
+.apply-view-btn:hover{background:#285d49}
+@media(max-width:900px){.apply-view-btn{top:auto;bottom:16px}}

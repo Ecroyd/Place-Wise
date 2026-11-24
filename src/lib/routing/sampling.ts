@@ -41,12 +41,17 @@ export function overviewSamples(grid:ReturnType<typeof commuteGrid>,destinations
 // into one shape: small patches near the destination, larger ones further out, no gaps
 // or overlaps. Properties keep the routed sample's id so colouring and clicks use real times.
 type Grid=ReturnType<typeof commuteGrid>;
-export function overviewDisplayGrid(grid:Grid,ids:string[]):Grid&{cellFor:Map<string,string>}{
+export function overviewDisplayGrid(grid:Grid,ids:string[],destinations:DestinationConstraint[]=[]):Grid&{cellFor:Map<string,string>}{
  const cellFor=new Map<string,string>();
  if(!ids.length||!grid.features.length)return {...grid,features:[],cellFor};
- const tiles=landTiles(grid.features.map(f=>f.properties.id));
+ // Only the area that was actually sampled: inside every destination's distance limit, on land.
+ const inLimits=(point:{latitude:number;longitude:number})=>destinations.every(d=>d.maximumDistanceKm===undefined||distanceKm(point,d)<=d.maximumDistanceKm+1);
+ const tiles=landTiles(grid.features.map(f=>f.properties.id)).filter(tile=>inLimits(sampleOrigin(tile)));
  const samples=ids.map(id=>({id,...sampleOrigin(id)}));
  const scale=Math.cos(samples[0].latitude*Math.PI/180);
+ // A point may only stand for ground close to it: at most 3/4 of the gap to its nearest
+ // neighbour (and never under 1.5 km), so no tile borrows a time from far away.
+ const reach=new Map(samples.map(a=>{let gap=Infinity;for(const b of samples)if(b!==a){const d=(a.latitude-b.latitude)**2+((a.longitude-b.longitude)*scale)**2;if(d<gap)gap=d;}return [a.id,Math.max(1.5/111,Math.sqrt(gap)*0.75)**2];}));
  // Bucket samples on a coarse lat/lng grid so each tile only checks nearby samples.
  const lats=samples.map(s=>s.latitude),lngs=samples.map(s=>s.longitude);
  const south=Math.min(...lats),west=Math.min(...lngs);
@@ -66,7 +71,7 @@ export function overviewDisplayGrid(grid:Grid,ids:string[]):Grid&{cellFor:Map<st
    // Anything in a further ring is at least `ring` buckets away.
    if(best&&Math.sqrt(bestDistance)<=ring*size)break;
   }
-  if(best){owned.get(best)!.push(tile);cellFor.set(tile,best);}
+  if(best&&bestDistance<=reach.get(best)!){owned.get(best)!.push(tile);cellFor.set(tile,best);}
  }
  const features=ids.filter(id=>owned.get(id)!.length).map(id=>{
   // Tiles are finer near the destination; merge each size separately (H3 needs one resolution per call).

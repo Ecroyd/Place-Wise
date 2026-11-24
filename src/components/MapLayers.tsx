@@ -1,17 +1,26 @@
 "use client";
 import {useViewField,useSearchView} from './SearchView';
 import {useEffect,useState,useCallback} from 'react';
+import {createPortal} from 'react-dom';
 import type {Map as MapLibreMap,Marker,Popup} from 'maplibre-gl';
 import {layerDefinitions,type LayerId,type LayerData,type PointLayer,type ViewBounds} from '@/src/lib/data/layers';
 
 import {CatchmentOverlay} from './CatchmentOverlay';
 import {CATCHMENT_COUNCILS} from '@/src/lib/data/catchments';
 
-function PointOverlay({map,id,phase,rating,reportArea,sector,country,onCatchment}:{country:string;sector:string;onCatchment:(urn:string,point:{latitude:number;longitude:number;name:string})=>void;map:MapLibreMap;id:PointLayer;phase:string;rating:string;reportArea:string}){
+function PointOverlay({map,id,area,apply,phase,rating,reportArea,sector,country,onCatchment}:{area?:ViewBounds;apply:()=>void;country:string;sector:string;onCatchment:(urn:string,point:{latitude:number;longitude:number;name:string})=>void;map:MapLibreMap;id:PointLayer;phase:string;rating:string;reportArea:string}){
   const [price]=useViewField('price');const minimumBudget=price.minimum,budget=price.maximum;
-  const [bounds,setBounds]=useState<ViewBounds>();const [data,setData]=useState<LayerData>();const [error,setError]=useState<string>();const [loading,setLoading]=useState(true);const [retry,setRetry]=useState(0);
-  useEffect(()=>{let timer:ReturnType<typeof setTimeout>;const update=()=>{clearTimeout(timer);timer=setTimeout(()=>{const b=map.getBounds();setLoading(true);setError(undefined);setData(undefined);setBounds({west:+b.getWest().toFixed(4),east:+b.getEast().toFixed(4),south:+b.getSouth().toFixed(4),north:+b.getNorth().toFixed(4)});},400);};update();map.on('moveend',update);return()=>{clearTimeout(timer);map.off('moveend',update);};},[map]);
-  useEffect(()=>{if(!bounds)return;const controller=new AbortController();const params=new URLSearchParams({layer:id,...(id==='property'?{minimumPrice:String(minimumBudget),maximumPrice:String(budget)}:{}),...(id==='schools'?{phase,rating,reportArea,sector,country}:{}),...Object.fromEntries(Object.entries(bounds).map(([k,v])=>[k,String(v)]))});void fetch(`/api/layers?${params}`,{signal:controller.signal}).then(async response=>{const payload=await response.json();if(!response.ok)throw Error(payload.error??'Layer unavailable');if(!controller.signal.aborted)setData(payload);}).catch(cause=>{if(!controller.signal.aborted)setError(cause.message);}).finally(()=>{if(!controller.signal.aborted)setLoading(false);});return()=>controller.abort();},[bounds,id,retry,budget,minimumBudget,phase,rating,reportArea,sector,country]);
+  const [retry,setRetry]=useState(0);
+  // Loads for the view that was applied (on switching on, or the Apply overlays button), not on every pan.
+  // A result belongs to the request it answered, so a new view or filter shows "Loading" until its own answer.
+  // The server takes at most 4° × 3°; wider than that, ask the person to zoom in instead of failing.
+  const tooWide=!!area&&(area.east-area.west>4||area.north-area.south>3);
+  const bounds=tooWide?undefined:area;
+  const params=bounds?new URLSearchParams({layer:id,...(id==='property'?{minimumPrice:String(minimumBudget),maximumPrice:String(budget)}:{}),...(id==='schools'?{phase,rating,reportArea,sector,country}:{}),...Object.fromEntries(Object.entries(bounds).map(([k,v])=>[k,String(v)]))}).toString():'';
+  const requestKey=params+'#'+retry;
+  const [result,setResult]=useState<{key:string;data?:LayerData;error?:string}>();
+  const current=result?.key===requestKey?result:undefined;const data=current?.data;const error=tooWide?'Zoom in to load this layer.':current?.error;const loading=!!bounds&&!current;
+  useEffect(()=>{if(!params)return;const controller=new AbortController();void fetch(`/api/layers?${params}`,{signal:controller.signal}).then(async response=>{const payload=await response.json();if(!response.ok)throw Error(payload.error??'Layer unavailable');if(!controller.signal.aborted)setResult({key:requestKey,data:payload});}).catch(cause=>{if(!controller.signal.aborted)setResult({key:requestKey,error:cause instanceof Error?cause.message:'Layer unavailable'});});return()=>controller.abort();},[params,requestKey]);
   useEffect(()=>{if(!data)return;let cancelled=false;const markers:Marker[]=[];const popups:Popup[]=[];
     void import('maplibre-gl').then(({Marker,Popup})=>{if(cancelled)return;const definition=layerDefinitions.find(d=>d.id===id)!;
       for(const point of data.points){
@@ -25,7 +34,7 @@ function PointOverlay({map,id,phase,rating,reportArea,sector,country,onCatchment
       }
     });return()=>{cancelled=true;markers.forEach(m=>m.remove());popups.forEach(p=>p.remove());};
   },[data,map,id,phase,onCatchment]);
-  return <div className="layer-status" aria-live="polite">{loading?'Loading this view…':error?<><span>{error}</span> <button onClick={()=>{if(error.includes('Zoom'))map.easeTo({zoom:Math.max(map.getZoom()+1,13)});else {setLoading(true);setError(undefined);setData(undefined);setRetry(n=>n+1);}}}>{error.includes('Zoom')?'Zoom in':'Retry'}</button></>:data?<><span>{data.points.length} pins. {data.note}</span><a href={data.sourceUrl} target="_blank" rel="noreferrer">{data.source}</a></>:null}</div>;
+  return <div className="layer-status" aria-live="polite">{loading?'Loading this view…':error?<><span>{error}</span> <button onClick={()=>{if(error.includes('Zoom')){map.once('moveend',apply);map.easeTo({zoom:Math.max(map.getZoom()+1,13)});}else setRetry(n=>n+1);}}>{error.includes('Zoom')?'Zoom in':'Retry'}</button></>:data?<><span>{data.points.length} pins. {data.note}</span><a href={data.sourceUrl} target="_blank" rel="noreferrer">{data.source}</a></>:null}</div>;
 }
 function FloodOverlay({map,kind}:{map:MapLibreMap;kind:'river'|'surface'}){
   const [zoom,setZoom]=useState(map.getZoom());const [error,setError]=useState(false);const [retry,setRetry]=useState(0);
@@ -72,8 +81,16 @@ export function MapLayers({map,open,onOpenChange}:{map:MapLibreMap|null;open?:bo
   const [rating]=useViewField('rating');const [reportArea]=useViewField('reportArea');
   const [enabled,setEnabled]=useViewField('layers');const [phase]=useViewField('phase');
   const {setView}=useSearchView();
+  // Overlays load for an applied view. Moving the map offers "Apply overlays to this view"
+  // rather than reloading crime, prices and places on every pan.
+  const [area,setArea]=useState<ViewBounds>();const [stale,setStale]=useState(false);
+  const apply=useCallback(()=>{if(!map)return;const b=map.getBounds();setArea({west:+b.getWest().toFixed(4),east:+b.getEast().toFixed(4),south:+b.getSouth().toFixed(4),north:+b.getNorth().toFixed(4)});setStale(false);},[map]);
+  const dataLayers=enabled.filter(id=>id!=='river'&&id!=='surface');const layerKey=dataLayers.join(',');
+  useEffect(()=>{if(!layerKey)return;const timer=setTimeout(apply,0);return()=>clearTimeout(timer);},[layerKey,apply]);
+  useEffect(()=>{if(!map||!layerKey)return;const moved=()=>setStale(true);map.on('moveend',moved);return()=>{map.off('moveend',moved);};},[map,layerKey]);
+  const target=map?.getContainer().parentElement;
   const [schoolPoint,setSchoolPoint]=useState<{urn:string;latitude:number;longitude:number;name:string}>();
   const showCatchment=useCallback((urn:string,point:{latitude:number;longitude:number;name:string})=>{setSchoolPoint({urn,...point});setView(old=>({...old,catchmentSchool:urn,phase:'All',layers:old.layers.includes('catchments')?old.layers:[...old.layers,'catchments']}));},[setView]);
   const toggle=(id:LayerId,checked:boolean)=>{setEnabled(old=>checked?[...old,id]:old.filter(value=>value!==id));};
-  return <details className="map-layers" open={open} onToggle={event=>{onOpenChange?.((event.currentTarget as HTMLDetailsElement).open);}}><summary>Map layers <span>{enabled.length?`${enabled.length} on`:'Explore'}</span></summary><div className="layer-options"><p>Combine layers. Pan the map to refresh local data.</p>{layerDefinitions.map(layer=><div className="layer-row" key={layer.id}><label><input type="checkbox" checked={enabled.includes(layer.id)} onChange={e=>toggle(layer.id,e.target.checked)}/><i style={{background:layer.colour}}/>{layer.label}</label>{enabled.includes(layer.id)&&<>{layer.id==='property'&&<PriceRange/>}{layer.id==='schools'&&<SchoolFilters/>}{map?(layer.id==='catchments'?<CatchmentOverlay key={phase+catchmentSchool} map={map} phase={phase} school={catchmentSchool} schoolPoint={schoolPoint?.urn===catchmentSchool?schoolPoint:undefined} onSchoolChange={setCatchmentSchool}/>:layer.id==='river'||layer.id==='surface'?<FloodOverlay map={map} kind={layer.id}/>:<PointOverlay key={layer.id==='schools'?`${phase}:${rating}:${reportArea}:${sector}:${country}`:layer.id} map={map} id={layer.id} country={country} sector={sector} onCatchment={showCatchment} phase={phase} rating={rating} reportArea={reportArea}/>):<small>Preparing map…</small>}</>}</div>)}</div></details>;
+  return <>{stale&&layerKey&&target&&createPortal(<button type="button" className="apply-view-btn" onClick={apply}>Apply overlays to this view</button>,target)}<details className="map-layers" open={open} onToggle={event=>{onOpenChange?.((event.currentTarget as HTMLDetailsElement).open);}}><summary>Map layers <span>{enabled.length?`${enabled.length} on`:'Explore'}</span></summary><div className="layer-options"><p>Combine layers. Pan the map to refresh local data.</p>{layerDefinitions.map(layer=><div className="layer-row" key={layer.id}><label><input type="checkbox" checked={enabled.includes(layer.id)} onChange={e=>toggle(layer.id,e.target.checked)}/><i style={{background:layer.colour}}/>{layer.label}</label>{enabled.includes(layer.id)&&<>{layer.id==='property'&&<PriceRange/>}{layer.id==='schools'&&<SchoolFilters/>}{map?(layer.id==='catchments'?<CatchmentOverlay key={phase+catchmentSchool} map={map} area={area} phase={phase} school={catchmentSchool} schoolPoint={schoolPoint?.urn===catchmentSchool?schoolPoint:undefined} onSchoolChange={setCatchmentSchool}/>:layer.id==='river'||layer.id==='surface'?<FloodOverlay map={map} kind={layer.id}/>:<PointOverlay key={layer.id==='schools'?`${phase}:${rating}:${reportArea}:${sector}:${country}`:layer.id} map={map} id={layer.id} area={area} apply={apply} country={country} sector={sector} onCatchment={showCatchment} phase={phase} rating={rating} reportArea={reportArea}/>):<small>Preparing map…</small>}</>}</div>)}</div></details></>;
 }

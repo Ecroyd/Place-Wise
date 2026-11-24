@@ -62,3 +62,17 @@ describe('overview display',()=>{
   expect(displaySampleAt(display,{latitude:lat,longitude:lng})).toBe(id);
  });
 });
+
+describe('shading stays where journeys were checked',()=>{
+  it('never shades beyond the distance limit or far from a checked point (Middleton, 60 min, 40 km)',()=>{
+    const search={...middleton,latitude:53.55047,longitude:-2.19733,maximumDistanceKm:40};
+    const grid=gridFor(search);const ids=overviewSamples(grid,[search],384);
+    const display=overviewDisplayGrid(grid,ids,[search]);
+    let furthestFromDestination=0,furthestFromOwner=0;
+    for(const [tile,owner] of display.cellFor){const [lat,lng]=cellToLatLng(tile);const at={latitude:lat,longitude:lng};
+      furthestFromDestination=Math.max(furthestFromDestination,distanceKm(at,search));furthestFromOwner=Math.max(furthestFromOwner,distanceKm(at,sampleOrigin(owner)));}
+    expect(furthestFromDestination).toBeLessThanOrEqual(42);
+    expect(furthestFromOwner).toBeLessThan(10);
+    expect(display.cellFor.size).toBeGreaterThan(500);
+  });
+});

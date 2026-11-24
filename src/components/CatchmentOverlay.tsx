@@ -3,6 +3,7 @@ import {useEffect,useRef,useState} from 'react';
 import {createPortal} from 'react-dom';
 import type {Map as MapLibreMap} from 'maplibre-gl';
 import {catchmentBounds,catchmentCoverage,type CatchmentData} from '@/src/lib/data/catchments';
+import type {ViewBounds} from '@/src/lib/data/layers';
 
 // Straight-line rings for schools without a published catchment: many councils (most of
 // Greater Manchester, for example) rank applicants by home-to-school distance as the crow flies.
@@ -30,19 +31,22 @@ function DistanceRings({map,centre}:{map:MapLibreMap;centre:{latitude:number;lon
   return null;
 }
 
-export function CatchmentOverlay({map,phase,school,schoolPoint,onSchoolChange}:{map:MapLibreMap;phase:string;school:string;schoolPoint?:{latitude:number;longitude:number;name:string};onSchoolChange:(urn:string)=>void}){
-  const [data,setData]=useState<CatchmentData>();const [error,setError]=useState('');const [loading,setLoading]=useState(true);const [retry,setRetry]=useState(0);
+export function CatchmentOverlay({map,area,phase,school,schoolPoint,onSchoolChange}:{map:MapLibreMap;area?:ViewBounds;phase:string;school:string;schoolPoint?:{latitude:number;longitude:number;name:string};onSchoolChange:(urn:string)=>void}){
+  const [retry,setRetry]=useState(0);
+  const params=area?new URLSearchParams({west:String(area.west),east:String(area.east),south:String(area.south),north:String(area.north),phase,school}).toString():'';
+  const requestKey=params+'#'+retry;
+  // Keep the last answer on screen while a new view loads, so rings and outlines don't flicker.
+  const [result,setResult]=useState<{key:string;data?:CatchmentData;error?:string}>();
+  const [last,setLast]=useState<CatchmentData>();
+  const loading=!!params&&result?.key!==requestKey;const error=result?.key===requestKey?result.error??'':'';const data=result?.key===requestKey&&result.data?result.data:last;
   const [paths,setPaths]=useState<{id:string;d:string;name:string;associated:boolean;ring?:boolean}[]>([]);
   const group=useRef<SVGGElement>(null);const fitted=useRef('');
+  // Fetch for the applied view (see "Apply overlays to this view"), or the chosen school's outline.
   useEffect(()=>{
-    let timer:ReturnType<typeof setTimeout>;let controller:AbortController|undefined;
-    const update=()=>{clearTimeout(timer);controller?.abort();timer=setTimeout(()=>{
-      const b=map.getBounds();const active=new AbortController();controller=active;setLoading(true);setError('');
-      const params=new URLSearchParams({west:String(b.getWest()),east:String(b.getEast()),south:String(b.getSouth()),north:String(b.getNorth()),phase,school});
-      void fetch('/api/catchments?'+params,{signal:active.signal}).then(async r=>{const payload=await r.json();if(!r.ok)throw Error(payload.error);if(!active.signal.aborted)setData(payload);}).catch(e=>{if(!active.signal.aborted)setError(e.message);}).finally(()=>{if(!active.signal.aborted)setLoading(false);});
-    },300);};
-    update();map.on('moveend',update);return()=>{clearTimeout(timer);controller?.abort();map.off('moveend',update);};
-  },[map,phase,school,retry]);
+    if(!params)return;const active=new AbortController();
+    void fetch('/api/catchments?'+params,{signal:active.signal}).then(async r=>{const payload=await r.json();if(!r.ok)throw Error(payload.error);if(!active.signal.aborted){setResult({key:requestKey,data:payload});setLast(payload);}}).catch(e=>{if(!active.signal.aborted)setResult({key:requestKey,error:e instanceof Error?e.message:'Unavailable'});});
+    return()=>active.abort();
+  },[params,requestKey]);
   useEffect(()=>{
     let cancelled=false;let sync:(()=>void)|undefined;
     if(!data)return;

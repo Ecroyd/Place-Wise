@@ -142,7 +142,7 @@ export function GoogleAreaMap({ destinations, selectedArea, onPointSelected, onM
         const targets=allDestinations?destinations:[baseDestination];
         const ids = overviewSamples(generated,targets,overviewBudget(targets));
         const batch = cellsPerRequest(targets);
-        const display = overviewDisplayGrid(generated, ids);
+        const display = overviewDisplayGrid(generated, ids, targets);
         setProgress({ done: 0, total: ids.length, missing: 0 });
         map = new maplibre.Map({
           container: element.current, center: initialView.current?[initialView.current.longitude,initialView.current.latitude]:[destination.longitude, destination.latitude], zoom: initialView.current?.zoom??9,

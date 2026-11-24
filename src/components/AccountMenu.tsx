@@ -25,7 +25,10 @@ export function AccountMenu({criteria,onLoad}:{criteria?:SavedCriteria;onLoad:(c
    unsubscribe=()=>subscription.unsubscribe();
    const {data,error}=await client.auth.getSession();
    if(active){setSession(data.session);setReady(true);if(error)setError(error.message);
-    if(new URLSearchParams(window.location.search).get('account')==='recovery'){setPanel(data.session?'reset':'forgot');if(!data.session)setError('This recovery link has expired or is invalid. Request a new one below.');}
+    // A fresh reset link signs the person in and fires PASSWORD_RECOVERY (handled above), which opens
+    // "Choose a new password". The ?account=recovery marker alone proves nothing (browsers autocomplete
+    // old links), so drop it, and only use it to explain an expired link when nobody is signed in.
+    if(new URLSearchParams(window.location.search).get('account')==='recovery'){window.history.replaceState({},'',window.location.pathname+window.location.hash);if(!data.session){setPanel('forgot');setError('This recovery link has expired or is invalid. Request a new one below.');}}
     const credits=new URLSearchParams(window.location.search).get('credits');if(credits){window.history.replaceState({},'',window.location.pathname);if(data.session){setPanel('credit');if(credits==='success')setAwaitingTopUp(true);else setMessage('Top-up cancelled. Nothing was charged.');}}
     const authError=new URLSearchParams(window.location.hash.slice(1)).get('error_description');if(authError){setError(authError);setPanel('forgot');}
    }
