@@ -8,16 +8,18 @@ import type {LayerData,LayerPoint,ViewBounds} from '@/src/lib/data/layers';
 export type OpenLayer='parks'|'amenities'|'transport';
 export interface OpenDataset{source:string;licence:string;sourceUrl:string;builtAt:string;types:string[];strings:string[];points:number[][]}
 
-// Literal paths so the deploy bundles each file.
-const FILES:Record<OpenLayer,()=>string>={
- amenities:()=>path.join(process.cwd(),'src/data/open-amenities.json'),
- parks:()=>path.join(process.cwd(),'src/data/open-parks.json'),
- transport:()=>path.join(process.cwd(),'src/data/open-transport.json'),
-};
+// Each file is read with a fixed literal path (the same pattern as the catchments route) so the
+// bundler can see exactly which files to ship. A computed path makes it bundle the whole project,
+// whose ESM package.json then breaks the route on Vercel.
+function read(layer:OpenLayer):Promise<string>{
+ if(layer==='amenities')return readFile(path.join(process.cwd(),'src/data/open-amenities.json'),'utf8');
+ if(layer==='parks')return readFile(path.join(process.cwd(),'src/data/open-parks.json'),'utf8');
+ return readFile(path.join(process.cwd(),'src/data/open-transport.json'),'utf8');
+}
 const loaded=new Map<OpenLayer,Promise<OpenDataset>>();
 export function loadOpenLayer(layer:OpenLayer){
  let data=loaded.get(layer);
- if(!data){data=readFile(FILES[layer](),'utf8').then(text=>JSON.parse(text) as OpenDataset);data.catch(()=>loaded.delete(layer));loaded.set(layer,data);}
+ if(!data){data=read(layer).then(text=>JSON.parse(text) as OpenDataset);data.catch(()=>loaded.delete(layer));loaded.set(layer,data);}
  return data;
 }
 
