@@ -8,10 +8,10 @@ import {POST as nearby} from '../areas/route';
 import {GET as layers} from '../layers/route';
 import {getLiveRoutingProvider} from '@/src/lib/routing/provider';
 import {distanceKm} from '@/src/lib/routing/commute';
-import {matchesSchool,type LayerData} from '@/src/lib/data/layers';
+import {matchesSchool,type LayerData,RATING_VALUES} from '@/src/lib/data/layers';
 import {routeFits,type CombinedMatch} from '@/src/lib/data/combined';
 import type {NearbyArea} from '@/src/lib/data/nearby';
-const schema=z.object({destinations:z.array(destinationSchema).min(1).max(3),center:coordinatesSchema.optional(),minimumPrice:z.number().nonnegative().default(0),maximumPrice:z.number().positive().optional(),school:z.object({enabled:z.boolean(),phase:z.string().max(50),rating:z.enum(['all','legacy:1','legacy:2','legacy:3','legacy:4','new:Exceptional','new:Strong standard','new:Expected standard','new:Needs attention','new:Urgent improvement']),reportArea:z.string().max(80),maximumWalkMinutes:z.number().min(1).max(60)})}).refine(v=>v.maximumPrice===undefined||v.minimumPrice<=v.maximumPrice);
+const schema=z.object({destinations:z.array(destinationSchema).min(1).max(3),center:coordinatesSchema.optional(),minimumPrice:z.number().nonnegative().default(0),maximumPrice:z.number().positive().optional(),school:z.object({enabled:z.boolean(),phase:z.string().max(50),rating:z.enum(RATING_VALUES),reportArea:z.string().max(80),maximumWalkMinutes:z.number().min(1).max(60)})}).refine(v=>v.maximumPrice===undefined||v.minimumPrice<=v.maximumPrice);
 interface School {country?:string;url?:string;id:string;name:string;latitude:number;longitude:number;phase:string;grades:Record<string,string>;legacy?:string}
 async function handlePost(request:Request){
  const limited=await apiLimit(request,"matches",12);if(limited)return limited;

@@ -27,6 +27,9 @@ function HeatMapContent(){
  const [destination,setDestination]=useState("");
  const [destinationFocused,setDestinationFocused]=useState(false);
  const placeholder=useTypingPlaceholder(!destination&&!destinationFocused);
+ // Straight-line distance is off by default: journey time is what matters. It stays as an
+ // optional extra filter for people who want one.
+ const [limitDistance,setLimitDistance]=useState(false);
  const [distance,setDistance]=useState(40);
  const [minimumDistance,setMinimumDistance]=useState(0);
  const [minimumTravel,setMinimumTravel]=useState(10);
@@ -42,7 +45,7 @@ function HeatMapContent(){
   const first=saved.destinations[0];
   setMode(saved.mode);
   setDestination(first.label);setTransport(first.transportMode);setMinimumTravel(first.minimumMinutes??0);setMaximumTravel(first.maximumMinutes??first.preferredMinutes??60);
-  setDistance(first.maximumDistanceKm??40);setMinimumDistance(first.minimumDistanceKm??0);setJourneys(first.journeysPerWeek);setDepartureTime(first.departureTime?new Date(new Date(first.departureTime).getTime()-new Date(first.departureTime).getTimezoneOffset()*60000).toISOString().slice(0,16):'');
+  setLimitDistance(first.maximumDistanceKm!==undefined||(first.minimumDistanceKm??0)>0);setDistance(first.maximumDistanceKm??40);setMinimumDistance(first.minimumDistanceKm??0);setJourneys(first.journeysPerWeek);setDepartureTime(first.departureTime?new Date(new Date(first.departureTime).getTime()-new Date(first.departureTime).getTimezoneOffset()*60000).toISOString().slice(0,16):'');
   setAdditional(saved.destinations.slice(1).map(d=>({address:d.label,transportMode:d.transportMode,minimumMinutes:d.minimumMinutes??0,maximumMinutes:d.maximumMinutes??d.preferredMinutes??60})));
   setDestinations(saved.destinations);
  }
@@ -65,7 +68,7 @@ function HeatMapContent(){
     const lookup=await fetch("/api/geocode",{method:"POST",headers:{"Content-Type":"application/json",...await authHeaders()},body:JSON.stringify({address:destination})});
     const place=await lookup.json() as {label?:string;latitude?:number;longitude?:number;error?:string};
     if(!lookup.ok||place.latitude===undefined||place.longitude===undefined)throw new Error(place.error??"Destination not found");
-    parsed.destinations=[{id:`destination:${place.latitude.toFixed(5)},${place.longitude.toFixed(5)}`,label:place.label??destination,purpose:"Main destination",latitude:place.latitude,longitude:place.longitude,journeysPerWeek:journeys,minimumMinutes:minimumTravel,preferredMinutes:maximumTravel,maximumMinutes:maximumTravel,minimumDistanceKm:minimumDistance,maximumDistanceKm:distance,transportMode:transport,weight:100,hardMaximum:true}];
+    parsed.destinations=[{id:`destination:${place.latitude.toFixed(5)},${place.longitude.toFixed(5)}`,label:place.label??destination,purpose:"Main destination",latitude:place.latitude,longitude:place.longitude,journeysPerWeek:journeys,minimumMinutes:minimumTravel,preferredMinutes:maximumTravel,maximumMinutes:maximumTravel,...(limitDistance?{minimumDistanceKm:minimumDistance,maximumDistanceKm:distance}:{}),transportMode:transport,weight:100,hardMaximum:true}];
     const extra = await Promise.all(additional.map(async(item,index)=>{
       const response=await fetch('/api/geocode',{method:'POST',headers:{'Content-Type':'application/json',...await authHeaders()},body:JSON.stringify({address:item.address})});const location=await response.json();if(!response.ok||typeof location.latitude!=='number'||typeof location.longitude!=='number')throw new Error(location.error??'Additional destination not found');
       return {...parsed.destinations[0],id:'additional:'+index+':'+location.latitude+','+location.longitude,label:location.label??item.address,latitude:location.latitude,longitude:location.longitude,transportMode:item.transportMode,minimumMinutes:item.minimumMinutes,maximumMinutes:item.maximumMinutes,preferredMinutes:item.maximumMinutes};
@@ -100,9 +103,10 @@ function HeatMapContent(){
     <Field id="transport" label="Travel mode"><select id="transport" value={transport} onChange={event=>setTransport(event.target.value as TransportMode)}><option value="any">Any travel mode</option><option value="drive">Drive</option><option value="transit">Public transport + walking</option><option value="cycle">Cycle</option><option value="walk">Walk</option></select></Field>
     <div className="additional-destinations">{additional.map((item,index)=><fieldset key={index}><legend>Destination {index+2}</legend><label>Address or town<input aria-label={'Destination '+(index+2)} value={item.address} onChange={e=>setAdditional(old=>old.map((d,i)=>i===index?{...d,address:e.target.value}:d))}/></label><label>Travel mode<select aria-label={'Destination '+(index+2)+' travel mode'} value={item.transportMode} onChange={e=>setAdditional(old=>old.map((d,i)=>i===index?{...d,transportMode:e.target.value as TransportMode}:d))}>{[['any','Any travel mode'],['drive','Driving'],['transit','Public transport + walking'],['cycle','Cycling'],['walk','Walking']].map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label><label>Minimum minutes<input aria-label={'Destination '+(index+2)+' minimum minutes'} type="number" min="0" value={item.minimumMinutes} onChange={e=>setAdditional(old=>old.map((d,i)=>i===index?{...d,minimumMinutes:Number(e.target.value)}:d))}/></label><label>Maximum minutes<input aria-label={'Destination '+(index+2)+' maximum minutes'} type="number" min="1" max="180" value={item.maximumMinutes} onChange={e=>setAdditional(old=>old.map((d,i)=>i===index?{...d,maximumMinutes:Number(e.target.value)}:d))}/></label><button type="button" onClick={()=>setAdditional(old=>old.filter((_,i)=>i!==index))}>Remove destination {index+2}</button></fieldset>)}{additional.length<2&&<button type="button" className="btn light" onClick={()=>setAdditional(old=>[...old,{address:'',transportMode:'drive',minimumMinutes:0,maximumMinutes:45}])}>+ Add another destination</button>}<small>Up to three destinations, each with its own travel mode and time limits. Distance limits and departure time apply to all.</small></div>
     <Field id="departure-time" label={transport==="transit"?"When are you travelling? (needed for public transport)":"When are you travelling? (optional)"}><input id="departure-time" type="datetime-local" value={departureTime} onChange={event=>setDepartureTime(event.target.value)}/><small>{departureTime?"Journey times will use live traffic and public transport timetables for this day and time.":"Leave blank to see typical journey times by car, bike or on foot. Add a day and time to include public transport and live traffic."}</small></Field>
-    <details className="refine"><summary>Refine distance and journey time</summary><div className="refine-body">
-    <RangeSlider id="distance" label="Distance" lower={minimumDistance} upper={distance} min={0} max={100} unit="km" onLowerChange={setMinimumDistance} onUpperChange={setDistance}/>
+    <details className="refine"><summary>Refine journey time</summary><div className="refine-body">
     <RangeSlider id="travel" label="Travel time" lower={minimumTravel} upper={maximumTravel} min={0} max={120} unit="min" onLowerChange={setMinimumTravel} onUpperChange={setMaximumTravel}/>
+    <label className="distance-toggle"><input type="checkbox" checked={limitDistance} onChange={event=>setLimitDistance(event.target.checked)}/> Also limit straight-line distance <small>(optional; journey time already decides what fits)</small></label>
+    {limitDistance&&<RangeSlider id="distance" label="Distance" lower={minimumDistance} upper={distance} min={0} max={100} unit="km" onLowerChange={setMinimumDistance} onUpperChange={setDistance}/>}
     <Slider id="journeys" label="Journeys per week" value={journeys} min={1} max={7} suffix="" set={setJourneys}/>
     </div></details>
    </div>}
