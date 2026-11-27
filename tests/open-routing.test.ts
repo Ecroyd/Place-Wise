@@ -44,6 +44,12 @@ describe('OpenRouteService matrix', () => {
     expect((results[2] as PromiseRejectedResult).reason).toBeInstanceOf(NoRouteError);
     expect(String(fetchMock.mock.calls[0][0])).toBe('https://ors.test/v2/matrix/cycling-regular');
   });
+  it('uses the api.heigit.org address by default (api.openrouteservice.org was retired on 2026-11-24)', async () => {
+    const fetchMock = vi.fn(async () => Response.json({durations: [[600]], distances: [[5]]}));
+    vi.stubGlobal('fetch', fetchMock);
+    await new OpenRouteServiceProvider('key').getTravelTimes([origins[0]], middleton, {transportMode: 'drive'});
+    expect(String((fetchMock.mock.calls[0] as unknown[])[0])).toBe('https://api.heigit.org/openrouteservice/v2/matrix/driving-car');
+  });
 });
 
 function fake(handler: (origin: Coordinates, options: RoutingOptions) => TravelTimeResult | Error): RoutingProvider & {calls: number} {

@@ -32,7 +32,7 @@ function HeatMapContent(){
  const [limitDistance,setLimitDistance]=useState(false);
  const [distance,setDistance]=useState(40);
  const [minimumDistance,setMinimumDistance]=useState(0);
- const [minimumTravel,setMinimumTravel]=useState(10);
+ const [minimumTravel,setMinimumTravel]=useState(0);
  const [maximumTravel,setMaximumTravel]=useState(60);
  const [journeys,setJourneys]=useState(5);
  const [departureTime,setDepartureTime]=useState("");

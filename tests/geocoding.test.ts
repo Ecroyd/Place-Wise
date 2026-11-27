@@ -34,7 +34,7 @@ describe('forward geocoding', () => {
     vi.stubEnv('ORS_API_KEY', 'ors');
     vi.stubGlobal('fetch', vi.fn(async (url: string) => {
       if (url.startsWith('https://api.postcodes.io/places')) return Response.json({result: null});
-      if (url.includes('/geocode/search')) return Response.json({features: [{properties: {label: '10 Downing Street, London, United Kingdom', confidence: 1}, geometry: {coordinates: [-0.1276, 51.5034]}}]});
+      if (url.startsWith('https://api.heigit.org/pelias/v1/search?')) return Response.json({features: [{properties: {label: '10 Downing Street, London, United Kingdom', confidence: 1}, geometry: {coordinates: [-0.1276, 51.5034]}}]});
       throw new Error('unexpected ' + url);
     }));
     expect(await forwardGeocode('10 Downing Street, London')).toMatchObject({label: '10 Downing Street, London', source: 'openrouteservice'});

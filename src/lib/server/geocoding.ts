@@ -14,7 +14,9 @@ const OUTCODE=/^[A-Z]{1,2}\d[A-Z\d]?$/i;
 const PLACE_RANK:Record<string,number>={City:0,Town:1,'Suburban Area':2,Village:3,Hamlet:4,'Other Settlement':5};
 const normalise=(text:string)=>text.toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
 const timeout=()=>AbortSignal.timeout(12000);
-const orsBase=()=>(process.env.ORS_GEOCODE_URL??'https://api.openrouteservice.org').replace(/\/$/,'');
+// OpenRouteService geocoding (Pelias) moved to api.heigit.org/pelias/v1 on 2026-11-24.
+// ORS_GEOCODE_URL can point at another Pelias /v1 base (e.g. a self-hosted one).
+const orsBase=()=>(process.env.ORS_GEOCODE_URL??'https://api.heigit.org/pelias/v1').replace(/\/$/,'');
 
 async function json<T>(url:string,init?:RequestInit):Promise<T|null>{
  const response=await fetch(url,{...init,signal:timeout()});
@@ -65,7 +67,7 @@ async function fromPostcodes(address:string):Promise<Geocoded|null>{
 async function fromOpenRouteService(address:string):Promise<Geocoded|null>{
  const key=process.env.ORS_API_KEY;if(!key)return null;
  const found=await json<{features?:{properties:{label?:string;name?:string;confidence?:number};geometry:{coordinates:[number,number]}}[]}>(
-  `${orsBase()}/geocode/search?${new URLSearchParams({text:address,'boundary.country':'GB',size:'1'})}`,{headers:{Authorization:key}});
+  `${orsBase()}/search?${new URLSearchParams({text:address,'boundary.country':'GB',size:'1'})}`,{headers:{Authorization:key}});
  const feature=found?.features?.[0];
  if(!feature||(feature.properties.confidence??1)<0.6)return null;
  const [longitude,latitude]=feature.geometry.coordinates;
@@ -95,7 +97,7 @@ export async function reverseGeocode(point:{latitude:number;longitude:number}):P
  if(key){
   try{
    const found=await json<{features?:{properties:{gid:string;name:string;label?:string};geometry:{coordinates:[number,number]}}[]}>(
-    `${orsBase()}/geocode/reverse?${new URLSearchParams({'point.lat':String(point.latitude),'point.lon':String(point.longitude),layers:'neighbourhood,locality,localadmin',size:'1','boundary.country':'GB'})}`,{headers:{Authorization:key}});
+    `${orsBase()}/reverse?${new URLSearchParams({'point.lat':String(point.latitude),'point.lon':String(point.longitude),layers:'neighbourhood,locality,localadmin',size:'1','boundary.country':'GB'})}`,{headers:{Authorization:key}});
    const feature=found?.features?.[0];
    if(!feature)return {area:null,source:'openrouteservice'};
    const [longitude,latitude]=feature.geometry.coordinates;

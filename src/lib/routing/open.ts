@@ -18,7 +18,9 @@ class RequestRejected extends Error{constructor(message:string){super(message);t
 // Driving (typical traffic), walking and cycling from OpenStreetMap via OpenRouteService.
 // Results are open data (ODbL), so unlike Google's they may be stored and reused.
 export class OpenRouteServiceProvider implements RoutingProvider{
- constructor(private apiKey=process.env.ORS_API_KEY,private endpoint=(process.env.ORS_URL??'https://api.openrouteservice.org').replace(/\/$/,'')){}
+ // HeiGIT retired api.openrouteservice.org on 2026-11-24; the same service now lives under
+ // api.heigit.org/openrouteservice (a self-hosted server can be set with ORS_URL).
+ constructor(private apiKey=process.env.ORS_API_KEY,private endpoint=(process.env.ORS_URL??'https://api.heigit.org/openrouteservice').replace(/\/$/,'')){}
  async getTravelTime(origin:Coordinates,destination:Coordinates,options:RoutingOptions){
   const [result]=await this.getTravelTimes([origin],destination,options);
   if(result.status==='rejected')throw result.reason;return result.value;
