@@ -22,6 +22,9 @@ revoke all on placewise.site_events from public,anon,authenticated;
 create table if not exists placewise.site_admins(user_id uuid primary key references auth.users(id) on delete cascade);
 alter table placewise.site_admins enable row level security;
 revoke all on placewise.site_admins from public,anon,authenticated;
+-- Only the server (service role) reads and writes these tables.
+grant select,insert,delete on placewise.site_events to service_role;
+grant select on placewise.site_admins to service_role;
 
 -- Everything the panel shows, in one call. p_days is the length of the daily chart.
 create or replace function placewise.site_stats(p_days integer default 30) returns jsonb
