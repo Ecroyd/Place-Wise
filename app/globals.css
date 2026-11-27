@@ -281,3 +281,71 @@ button { cursor:pointer; }
 .layer-pin.layer-pin-large{width:29px;height:29px;font-size:13px;border-width:2.5px;z-index:2}
 .stop-key{display:flex;flex-wrap:wrap;gap:4px 10px;margin-top:6px;font-size:10px;color:#3d524b}.stop-key span{display:inline-flex;align-items:center;gap:4px}.stop-key i{display:grid;place-items:center;width:15px;height:15px;border-radius:50%;color:white;font-style:normal;font-weight:800;font-size:9px}
 .layer-bar-note.stop-key{background:#eef3f8;color:#1f3b52}
+
+/* ---- Phones: keep the map in view and the controls clear of each other ---- */
+@media(max-width:600px){
+  .result-head{display:flex;flex-direction:row;align-items:center;justify-content:space-between;gap:10px;padding:10px 12px 8px}
+  .result-head .eyebrow{display:none}
+  .result-head h1{font-size:20px;margin:0;line-height:1.15}
+  .result-head .btn{padding:8px 12px;font-size:13px;white-space:nowrap}
+  .layer-bar{gap:6px;padding:0 10px 8px}
+  .layer-bar-title{display:none}
+  .layer-chip{font-size:12px;padding:5px 10px 5px 5px;gap:5px}
+  .layer-chip i{width:19px;height:19px;font-size:10px}
+  .school-box,.layer-bar-note{margin:-2px 10px 8px}
+  /* "Map layers" becomes a short "Layers" pill so it never collides with the Commute pill. */
+  .map-layers:not([open]) summary{font-size:0;padding:10px 12px}
+  .map-layers:not([open]) summary::before{content:"Layers";font-size:12px;font-weight:800}
+  .map-layers:not([open]) summary span{display:none}
+  .commute-controls{max-width:calc(100% - 150px)}
+  /* Notices and "Apply overlays" sit just under the top pills, clear of the legend and summary card. */
+  .map-notices{top:58px;bottom:auto;left:10px;right:10px;transform:none;max-width:none;align-items:stretch}
+  .map-notice{font-size:12px}
+  .apply-view-btn{align-self:center}
+  /* Comfortable touch targets. */
+  .distance-toggle input,.layer-row input,.combined-search input[type=checkbox]{width:20px;height:20px}
+  input[type=range]{min-height:28px}
+  .home-hero h1{font-size:40px}
+}
+
+.school-box>summary{list-style:none;cursor:pointer;display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 10px;flex-basis:100%}
+.school-box>summary::-webkit-details-marker{display:none}
+.school-box>summary h3{flex-basis:auto}
+.school-box>summary::after{content:"▾";margin-left:auto;color:#4a2f74;font-size:12px}
+.school-box[open]>summary::after{content:"▴"}
+.school-box-summary{font-size:11px;color:#6b5a85}
+.school-box[open] .school-box-summary{display:none}
+@media(max-width:600px){
+  .school-box{padding:8px 12px}
+  .stop-key{flex-wrap:nowrap;overflow-x:auto;white-space:nowrap}
+  .map-notices{right:56px}
+  .map-notice{display:flex;align-items:center;flex-wrap:wrap;gap:4px 6px}
+}
+.school-box:not([open]){display:block}
+.school-box>summary{flex-wrap:nowrap}
+.school-box-summary{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.school-box>summary::after{margin-left:6px}
+@media(max-width:600px){
+  .distance-ring-card{top:auto;bottom:52px;left:10px;right:10px;transform:none;max-width:none;font-size:11.5px;padding:8px 10px}
+  .layer-popup{max-height:38vh}
+  .maplibregl-popup-content{padding:12px 14px}
+}
+/* iPhones zoom the page when a field under 16px is focused, so keep form text at 16px on phones. */
+@media(max-width:900px){input:not([type=checkbox]):not([type=radio]):not([type=range]),select,textarea{font-size:16px}}
+/* Phones: the nearby areas (with their write-ups) come before the advanced combined-match search. */
+@media(max-width:900px){.area-list{display:flex;flex-direction:column}.area-list>.combined-search{order:10;margin-top:8px}}
+.map-layers .school-filters .school-filter{display:block}
+.map-layers .school-filters .school-filter select{display:block;width:100%;max-width:100%;margin-top:3px}
+/* Phones: one "Account" button opens the signed-in actions as a small menu. */
+.account-toggle{display:none}
+@media(max-width:600px){
+  .account-actions{position:relative;flex-wrap:nowrap}
+  .account-save-signed-out{display:none}
+  .account-actions .account-toggle{display:inline-flex;padding:9px 14px;font-size:13px}
+  .account-actions:has(.account-toggle)>.btn:not(.account-toggle){display:none}
+  .account-actions.open>.btn:not(.account-toggle){display:block;width:100%;text-align:left;padding:12px 14px;font-size:14px;border-radius:10px}
+  .account-actions.open{flex-direction:column;align-items:stretch}
+  .account-actions.open>.btn:not(.account-toggle){order:2}
+  .account-actions.open{position:absolute;right:12px;top:10px;z-index:30;background:var(--paper,#fffdf8);padding:8px;border-radius:16px;box-shadow:0 10px 30px #18332c30;gap:4px;min-width:200px}
+}
+@media(max-width:900px){.commute-controls select,.commute-controls input:not([type=checkbox]):not([type=range]){font-size:16px}}

@@ -9,6 +9,7 @@ export function AccountMenu({criteria,onLoad}:{criteria?:SavedCriteria;onLoad:(c
  const [session,setSession]=useState<Session|null>(null);
  const [ready,setReady]=useState(false);
  const [awaitingTopUp,setAwaitingTopUp]=useState(false);
+ const [menuOpen,setMenuOpen]=useState(false);
  const [panel,setPanel]=useState<'signin'|'signup'|'saved'|'save'|'forgot'|'resend'|'reset'|'credit'|null>(null);
  const [confirmation,setConfirmation]=useState('');
  const [email,setEmail]=useState('');const [password,setPassword]=useState('');
@@ -44,6 +45,7 @@ export function AccountMenu({criteria,onLoad}:{criteria?:SavedCriteria;onLoad:(c
  }
  async function perform(task:()=>Promise<void>){setBusy(true);setError('');setMessage('');try{await task();}catch(cause){setError(cause instanceof Error?cause.message:(cause as {message?:string})?.message??'Something went wrong. Please try again.');}finally{setBusy(false);}}
  function open(next:'signin'|'saved'|'save'|'credit'){
+  setMenuOpen(false);
   setError('');setMessage('');setPassword('');setPanel(session?next:'signin');
   if(next==='save')setName(criteria?.destinations.map(d=>d.label).join(' + ').slice(0,120)??'My search');
   if(session&&next==='saved')void perform(loadSearches);
@@ -80,13 +82,15 @@ export function AccountMenu({criteria,onLoad}:{criteria?:SavedCriteria;onLoad:(c
   const result=await client.from('saved_searches').insert({user_id:session.user.id,name:clean,mode:value.mode,criteria:value});if(result.error)throw result.error;
   setPanel('saved');await loadSearches();setMessage('Search saved to your account.');
  }
- return <><div className="account-actions">
-  {criteria&&<button className="btn light" disabled={!ready} onClick={()=>open('save')}>Save search</button>}
-  {session?<><button className="btn light" onClick={()=>open('credit')}>Usage credit</button><button className="btn light" onClick={()=>open('saved')}>Saved searches</button><button className="btn" disabled={busy} onClick={()=>void perform(async()=>{const {error}=await getBrowserClient().auth.signOut();if(error)throw error;setSession(null);setSearches([]);setPanel(null);})}>Sign out</button></>:<button className="btn primary" disabled={!ready} onClick={()=>open('signin')}>{ready?'Sign in':'Loading account…'}</button>}
+ // On phones the signed-in buttons fold into one "Account" menu (see .account-actions in globals.css).
+ return <><div className={menuOpen?'account-actions open':'account-actions'}>
+  {session&&<button type="button" className="btn account-toggle" aria-expanded={menuOpen} onClick={()=>setMenuOpen(o=>!o)}>Account ▾</button>}
+  {criteria&&<button className={session?'btn light':'btn light account-save-signed-out'} disabled={!ready} onClick={()=>open('save')}>Save search</button>}
+  {session?<><button className="btn light" onClick={()=>open('credit')}>Usage credit</button><button className="btn light" onClick={()=>open('saved')}>Saved searches</button><button className="btn" disabled={busy} onClick={()=>void perform(async()=>{const {error}=await getBrowserClient().auth.signOut();if(error)throw error;setSession(null);setSearches([]);setPanel(null);setMenuOpen(false);})}>Sign out</button></>:<button className="btn primary" disabled={!ready} onClick={()=>open('signin')}>{ready?'Sign in':'Loading account…'}</button>}
  </div><dialog ref={dialog} className="account-dialog" onCancel={()=>setPanel(null)} onClose={()=>{setPanel(null);setPassword('');}}>
   <div className="account-heading"><h2>{panel==='forgot'?'Reset your password':panel==='resend'?'Resend confirmation':panel==='reset'?'Choose a new password':panel==='credit'?'Usage credit':panel==='save'?'Save this search':panel==='saved'?'Your saved searches':panel==='signup'?'Create an account':'Sign in'}</h2><button type="button" className="btn" aria-label="Close account panel" onClick={()=>setPanel(null)}>Close</button></div>
   {(panel==='signin'||panel==='signup')&&<form onSubmit={event=>{event.preventDefault();void perform(authenticate);}}>
-   <p>Save your destinations, travel limits and house-price range, and open them on another device.</p>
+   <p>Save your destinations, travel limits and map layers, and open them on another device.</p>
    <label>Email<input type="email" autoComplete="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label>
    <label>Password<input type="password" autoComplete={panel==='signup'?'new-password':'current-password'} minLength={panel==='signup'?8:undefined} required value={password} onChange={e=>setPassword(e.target.value)}/></label>
    <button className="btn primary" disabled={busy}>{busy?'Please wait…':panel==='signup'?'Create account':'Sign in'}</button>
@@ -96,7 +100,7 @@ export function AccountMenu({criteria,onLoad}:{criteria?:SavedCriteria;onLoad:(c
   </form>}
   {(panel==='forgot'||panel==='resend')&&<form onSubmit={event=>{event.preventDefault();void perform(accountEmail);}}><label>Email<input type="email" autoComplete="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label><button className="btn primary" disabled={busy}>{busy?'Sending…':panel==='forgot'?'Send reset link':'Resend confirmation email'}</button><button type="button" className="btn" onClick={()=>{setPanel('signin');setError('');setMessage('');}}>Back to sign in</button></form>}
   {panel==='reset'&&<form onSubmit={event=>{event.preventDefault();void perform(resetPassword);}}><label>New password<input type="password" required minLength={8} autoComplete="new-password" value={password} onChange={e=>setPassword(e.target.value)}/></label><label>Confirm new password<input type="password" required minLength={8} autoComplete="new-password" value={confirmation} onChange={e=>setConfirmation(e.target.value)}/></label><button className="btn primary" disabled={busy}>{busy?'Updating…':'Update password'}</button></form>}
-  {panel==='save'&&<form onSubmit={event=>{event.preventDefault();void perform(save);}}><label>Search name<input required maxLength={120} value={name} onChange={e=>setName(e.target.value)}/></label><p>Includes all destinations, journey modes and limits, and your house-price range. Also saves map position, visible layers, school filters and combined-match preferences.</p><button className="btn primary" disabled={busy}>{busy?'Saving…':'Save search'}</button></form>}
+  {panel==='save'&&<form onSubmit={event=>{event.preventDefault();void perform(save);}}><label>Search name<input required maxLength={120} value={name} onChange={e=>setName(e.target.value)}/></label><p>Includes all destinations, journey modes and limits. Also saves map position, visible layers, school filters and combined-match preferences.</p><button className="btn primary" disabled={busy}>{busy?'Saving…':'Save search'}</button></form>}
   {panel==='saved'&&<><p>{session?.user.email}</p>{busy&&<p>Loading…</p>}{!busy&&!searches.length&&<p>No saved searches yet. Run a search and choose Save search.</p>}{searches.map(search=><article className="saved-search" key={search.id}><strong>{search.name}</strong><small>Saved {new Date(search.created_at).toLocaleDateString('en-GB')}</small><div><button className="btn primary" disabled={busy} onClick={()=>{try{onLoad(restoreCriteria(search.criteria));setPanel(null);}catch{setError('This saved search has an unsupported format. Please create a new search.');}}}>Open search</button><button className="btn" disabled={busy} onClick={()=>void perform(async()=>{const result=await getBrowserClient().from('saved_searches').delete().eq('id',search.id);if(result.error)throw result.error;await loadSearches();})}>Delete</button></div></article>)}</>}
   {panel==='credit'&&session&&<UsageCredit awaitingTopUp={awaitingTopUp}/>}
   {message&&<p role="status">{message}</p>}{error&&<p role="alert">{error}</p>}

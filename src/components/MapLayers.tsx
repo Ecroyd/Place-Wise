@@ -29,7 +29,7 @@ function PointOverlay({map,id,area,apply,notices,phase,rating,reportArea,sector,
         const content=document.createElement('div');content.className='layer-popup';const heading=document.createElement('strong');heading.textContent=point.name;content.append(heading);
         for(const text of point.details){const line=document.createElement('p');line.textContent=text;content.append(line);}
         if(point.url&&/^https:\/\//.test(point.url)){const link=document.createElement('a');link.href=point.url;link.target='_blank';link.rel='noopener noreferrer';link.textContent=point.urlLabel??(id==='schools'?'View Ofsted report':'View source');content.append(link);}
-        const popup=new Popup({offset:16,maxWidth:'330px'}).setDOMContent(content);popups.push(popup);
+        const popup=new Popup({offset:16,maxWidth:'min(330px, 86vw)'}).setDOMContent(content);popups.push(popup);
         const marker=new Marker({element:pin}).setLngLat([point.longitude,point.latitude]).setPopup(popup).addTo(map);markers.push(marker);
         pin.addEventListener('click',event=>{event.stopPropagation();popups.forEach(other=>{if(other!==popup)other.remove();});popup.setLngLat([point.longitude,point.latitude]).addTo(map);if(id==='schools')onCatchment(point.id,{latitude:point.latitude,longitude:point.longitude,name:point.name});});
       }
@@ -72,11 +72,16 @@ const SHORT_LABEL:Record<LayerId,string>={schools:'Schools',catchments:'School c
 // Every overlay as a one-click toggle above the map; detailed settings stay in the Map layers panel.
 export function LayerBar({onChange}:{onChange?:(id:LayerId,on:boolean)=>void}){
   const [enabled,setEnabled]=useViewField('layers');
+  // On phones the school filters start folded into one line so the map stays in view.
+  const [schoolsOpen,setSchoolsOpen]=useState(()=>typeof window==='undefined'||!window.matchMedia('(max-width: 600px)').matches);
+  const [phase]=useViewField('phase');const [sector]=useViewField('sector');const [rating]=useViewField('rating');
+  const ratingLabel=rating==='all'?'Any Ofsted result':rating.replace(/^legacy-up:1$/,'Outstanding').replace(/^legacy-up:(\d)$/,(_,g)=>({'2':'Good','3':'Requires improvement'} as Record<string,string>)[g]+' or better').replace(/^new-up:(.*)$/,'$1 or better').replace(/^legacy:(\d)$/,(_,g)=>({'1':'Outstanding','2':'Good','3':'Requires improvement','4':'Inadequate'} as Record<string,string>)[g]).replace(/^new:/,'');
+  const schoolSummary=[PHASES.find(([v])=>v===phase)?.[1]??phase,sector==='all'?'State & private':sector==='state'?'State-funded':'Private',ratingLabel].join(' · ');
   return <><div className="layer-bar" role="group" aria-label="Map overlays"><span className="layer-bar-title">Overlays</span>{layerDefinitions.map(layer=>{const on=enabled.includes(layer.id);
     return <button key={layer.id} type="button" className={on?'layer-chip on':'layer-chip'} aria-pressed={on} style={{'--chip':layer.colour} as React.CSSProperties} onClick={()=>{setEnabled(old=>on?old.filter(v=>v!==layer.id):[...old,layer.id]);onChange?.(layer.id,!on);}}><i aria-hidden="true">{layer.symbol}</i>{SHORT_LABEL[layer.id]}</button>;})}</div>
     {enabled.includes('transport')&&<p className="layer-bar-note stop-key" aria-label="Transport stop key">{Object.values(STOP_STYLES).map(style=><span key={style.label}><i style={{background:style.colour}}>{style.symbol}</i>{style.label}</span>)}</p>}
-    {(enabled.includes('schools')||enabled.includes('catchments'))&&<section className="school-box" aria-label="Which schools to show"><h3>Which schools?</h3><SchoolFilters compact/></section>}
-    {enabled.includes('catchments')&&<p className="layer-bar-note" role="status">School catchment outlines cover the {CATCHMENT_COUNCILS.length} councils that publish them as open map data, including most of Scotland&apos;s cities, Hampshire, Wiltshire, Cheshire, Sheffield, Bristol and Stockport. Most Greater Manchester councils, Leeds and Birmingham don&apos;t publish theirs, so no outline doesn&apos;t mean no catchment. Zoom in to a town to see them.</p>}</>;
+    {(enabled.includes('schools')||enabled.includes('catchments'))&&<details className="school-box" aria-label="Which schools to show" open={schoolsOpen} onToggle={event=>setSchoolsOpen((event.currentTarget as HTMLDetailsElement).open)}><summary><h3>Which schools?</h3><span className="school-box-summary">{schoolSummary}</span></summary><SchoolFilters compact/></details>}
+    {enabled.includes('catchments')&&<p className="layer-bar-note" role="status">Catchment outlines come from the {CATCHMENT_COUNCILS.length} councils that publish them (e.g. Glasgow, Sheffield, Hampshire, Stockport), not most of Greater Manchester. No outline doesn&apos;t mean no catchment.</p>}</>;
 }
 // The sold-prices layer's own range. Combined matches can optionally use it too.
 function PriceRange(){
