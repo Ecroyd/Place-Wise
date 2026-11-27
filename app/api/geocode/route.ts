@@ -1,15 +1,20 @@
 import {withPayer} from '@/src/lib/server/payer';
 import {apiLimit} from '@/src/lib/server/budget';
-import {forwardGeocode,GOOGLE_GEOCODE_TTL_MS,OPEN_GEOCODE_TTL_MS} from '@/src/lib/server/geocoding';
+import {forwardGeocode,pinLabel,GOOGLE_GEOCODE_TTL_MS,OPEN_GEOCODE_TTL_MS} from '@/src/lib/server/geocoding';
 import {readCached,writeCached} from '@/src/lib/server/responseCache';
 import {z} from "zod";
 const requestSchema=z.object({address:z.string().trim().min(2).max(200)});
+// A dropped pin: keep its exact coordinates and just name it. UK and Ireland only.
+const pinSchema=z.object({latitude:z.number().min(49).max(61.5),longitude:z.number().min(-11).max(2.5)});
 type Geocoded={label:string;latitude:number;longitude:number};
 const memory=new Map<string,{value:Geocoded;expires:number}>();
 const geocodeCacheKey=(address:string)=>'geocode:v3:'+address.toLowerCase().replace(/\s+/g,' ').trim();
 async function handlePost(request:Request){
  const limited=await apiLimit(request,"geocode",60);if(limited)return limited;
- const parsed=requestSchema.safeParse(await request.json().catch(()=>null));
+ const body=await request.json().catch(()=>null);
+ const pin=pinSchema.safeParse(body);
+ if(pin.success)return Response.json({label:await pinLabel(pin.data),latitude:pin.data.latitude,longitude:pin.data.longitude});
+ const parsed=requestSchema.safeParse(body);
  if(!parsed.success)return Response.json({error:"Enter a valid destination"},{status:400});
  const cacheKey=geocodeCacheKey(parsed.data.address);
  const remembered=memory.get(cacheKey);if(remembered&&remembered.expires>Date.now())return Response.json(remembered.value);

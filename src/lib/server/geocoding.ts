@@ -91,6 +91,17 @@ export async function forwardGeocode(address:string):Promise<Geocoded|null>{
  return fromGoogle(address);
 }
 
+// Describes a dropped pin by its nearest postcode (free, postcodes.io). The pin's own
+// coordinates are kept exactly; this is only the label shown to the person.
+export async function pinLabel(point:{latitude:number;longitude:number}):Promise<string>{
+ const fallback=`Dropped pin (${point.latitude.toFixed(4)}, ${point.longitude.toFixed(4)})`;
+ try{
+  const found=await json<{result:{postcode:string;admin_ward?:string;admin_district?:string}[]|null}>(`https://api.postcodes.io/postcodes?${new URLSearchParams({lon:String(point.longitude),lat:String(point.latitude),limit:'1',radius:'2000'})}`);
+  const r=found?.result?.[0];
+  return r?'Pin near '+[r.postcode,r.admin_ward,r.admin_district].filter(Boolean).join(', '):fallback;
+ }catch{return fallback;}
+}
+
 // Names the neighbourhood or town at a point, for "Areas near …".
 export async function reverseGeocode(point:{latitude:number;longitude:number}):Promise<{area:NamedArea|null;source:Geocoded['source']}>{
  const key=process.env.ORS_API_KEY;

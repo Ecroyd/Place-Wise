@@ -42,7 +42,7 @@ export function AreaResults({ destinations,onDestinationsChange }: {onDestinatio
   return <><LayerBar/><div className="heat-layout">
     <section className="heat-map google"><GoogleAreaMap destinations={effectiveDestinations} onModeChange={changeMode} onDepartureChange={changeDeparture} combinedMatches={combinedMatches} selectedArea={focused} onPointSelected={selectPoint}/></section>
     <aside className="area-list" aria-label="Nearby areas"><CombinedMatches destinations={effectiveDestinations} center={center} onMatches={setCombinedMatches} onSelect={match=>setFocused({...match,address:match.name,minutes:match.journeys[0]?.minutes??null,withinLimits:true,reasons:[]})}/>
-      <div className="area-intro"><b>Areas near {centerLabel}</b><span>Up to 8 sampled towns, ordered by travel fit.</span></div>
+      <div className="area-intro"><b>Areas near {centerLabel.replace(/^Pin near /,"")}</b><span>Up to 8 sampled towns, ordered by travel fit.</span></div>
       <p className="demo-note">Click the map to explore nearby areas, or choose an area to locate it.</p>
       {center&&<button className="btn light" onClick={()=>{setCenter(undefined);setFocused(undefined)}}>Back to destination areas</button>}
       {loading&&<p className="demo-note" role="status">Finding nearby towns and checking journeys…</p>}

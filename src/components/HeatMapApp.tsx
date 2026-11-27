@@ -10,6 +10,7 @@ import {RangeSlider} from "./RangeSlider";
 import type {DestinationConstraint,OptimisationMode,SearchCriteria,TransportMode} from "@/src/types/domain";
 import {authHeaders} from '@/src/lib/supabase/browser';
 import {useTypingPlaceholder} from './TypingPlaceholder';
+import {PinPicker,type Pin} from './PinPicker';
 
 const prompt="I work in Middleton five days a week. We have a £500,000 budget and I don't want more than about 35 minutes to work.";
 const AI_SEARCH_ENABLED=false;
@@ -24,7 +25,11 @@ function HeatMapContent(){
  const [destinations,setDestinations]=useState<DestinationConstraint[]>([]);
  const [loading,setLoading]=useState(false);
  const [error,setError]=useState<string>();
- const [additional,setAdditional]=useState<{address:string;transportMode:TransportMode;minimumMinutes:number;maximumMinutes:number}[]>([]);
+ const [additional,setAdditional]=useState<{address:string;pin?:Pin;transportMode:TransportMode;minimumMinutes:number;maximumMinutes:number}[]>([]);
+ // An exact spot chosen on the map. It applies while the box still shows its label.
+ const [pin,setPin]=useState<Pin>();
+ // Which destination the pin dialog is for: 0 is the main one, 1+ the additional ones.
+ const [picking,setPicking]=useState<number>();
  const [destination,setDestination]=useState("");
  const [destinationFocused,setDestinationFocused]=useState(false);
  const placeholder=useTypingPlaceholder(!destination&&!destinationFocused);
@@ -41,7 +46,7 @@ function HeatMapContent(){
  // "Start again": back to an empty search form with every setting at its default.
  function resetSearch(){
   setDestinations([]);setView(defaultView());setSearchRevision(n=>n+1);setError(undefined);
-  setMode("live");setDestination("");setTransport("drive");setAdditional([]);setDepartureTime("");
+  setMode("live");setDestination("");setPin(undefined);setPicking(undefined);setTransport("drive");setAdditional([]);setDepartureTime("");
   setLimitDistance(false);setDistance(40);setMinimumDistance(0);setMinimumTravel(0);setMaximumTravel(60);setJourneys(5);
   window.scrollTo({top:0,behavior:'smooth'});
  }
@@ -58,6 +63,14 @@ function HeatMapContent(){
   setDestinations(saved.destinations);
  }
  const nav=<Nav criteria={destinations.length?{version:1,mode,destinations,view}:undefined} onLoad={loadSaved}/>;
+ // Uses the dropped pin when there is one; otherwise looks the typed text up.
+ async function locate(address:string,dropped:Pin|undefined,missing:string):Promise<{label:string;latitude:number;longitude:number}>{
+  if(dropped&&dropped.label===address)return dropped;
+  const response=await fetch('/api/geocode',{method:'POST',headers:{'Content-Type':'application/json',...await authHeaders()},body:JSON.stringify({address})});
+  const place=await response.json() as {label?:string;latitude?:number;longitude?:number;error?:string};
+  if(!response.ok||typeof place.latitude!=='number'||typeof place.longitude!=='number')throw new Error(place.error??missing);
+  return {label:place.label??address,latitude:place.latitude,longitude:place.longitude};
+ }
  async function run(){
   setLoading(true);setError(undefined);
   try{
@@ -73,13 +86,11 @@ function HeatMapContent(){
    }
    parsed.mode=mode;
    if(!AI_SEARCH_ENABLED||inputMode==="manual"){
-    const lookup=await fetch("/api/geocode",{method:"POST",headers:{"Content-Type":"application/json",...await authHeaders()},body:JSON.stringify({address:destination})});
-    const place=await lookup.json() as {label?:string;latitude?:number;longitude?:number;error?:string};
-    if(!lookup.ok||place.latitude===undefined||place.longitude===undefined)throw new Error(place.error??"Destination not found");
-    parsed.destinations=[{id:`destination:${place.latitude.toFixed(5)},${place.longitude.toFixed(5)}`,label:place.label??destination,purpose:"Main destination",latitude:place.latitude,longitude:place.longitude,journeysPerWeek:journeys,minimumMinutes:minimumTravel,preferredMinutes:maximumTravel,maximumMinutes:maximumTravel,...(limitDistance?{minimumDistanceKm:minimumDistance,maximumDistanceKm:distance}:{}),transportMode:transport,weight:100,hardMaximum:true}];
+    const place=await locate(destination,pin,"Destination not found");
+    parsed.destinations=[{id:`destination:${place.latitude.toFixed(5)},${place.longitude.toFixed(5)}`,label:place.label,purpose:"Main destination",latitude:place.latitude,longitude:place.longitude,journeysPerWeek:journeys,minimumMinutes:minimumTravel,preferredMinutes:maximumTravel,maximumMinutes:maximumTravel,...(limitDistance?{minimumDistanceKm:minimumDistance,maximumDistanceKm:distance}:{}),transportMode:transport,weight:100,hardMaximum:true}];
     const extra = await Promise.all(additional.map(async(item,index)=>{
-      const response=await fetch('/api/geocode',{method:'POST',headers:{'Content-Type':'application/json',...await authHeaders()},body:JSON.stringify({address:item.address})});const location=await response.json();if(!response.ok||typeof location.latitude!=='number'||typeof location.longitude!=='number')throw new Error(location.error??'Additional destination not found');
-      return {...parsed.destinations[0],id:'additional:'+index+':'+location.latitude+','+location.longitude,label:location.label??item.address,latitude:location.latitude,longitude:location.longitude,transportMode:item.transportMode,minimumMinutes:item.minimumMinutes,maximumMinutes:item.maximumMinutes,preferredMinutes:item.maximumMinutes};
+      const location=await locate(item.address,item.pin,'Additional destination not found');
+      return {...parsed.destinations[0],id:'additional:'+index+':'+location.latitude+','+location.longitude,label:location.label,latitude:location.latitude,longitude:location.longitude,transportMode:item.transportMode,minimumMinutes:item.minimumMinutes,maximumMinutes:item.maximumMinutes,preferredMinutes:item.maximumMinutes};
     }));parsed.destinations.push(...extra);
     parsed.lifestyle=[];
    }
@@ -108,9 +119,9 @@ function HeatMapContent(){
    <div className="card-head"><h2>Start your search</h2><div className="mode-switch compact"><button className={mode==="live"?"active":""} onClick={()=>setMode("live")}>Where should I live?</button><button className={mode==="work"?"active":""} onClick={()=>setMode("work")}>Where should I work?</button></div></div>
    {AI_SEARCH_ENABLED&&<div className="input-tabs"><button className={inputMode==="ai"?"active":""} onClick={()=>setInputMode("ai")}>✦ Describe your ideal area</button><button className={inputMode==="manual"?"active":""} onClick={()=>setInputMode("manual")}>Adjust priorities</button></div>}
    {AI_SEARCH_ENABLED&&inputMode==="ai"?<textarea className="prompt" value={text} onChange={event=>setText(event.target.value)} aria-label="Describe your ideal area"/>:<div className="manual">
-    <Field id="destination" label="Main destination"><input id="destination" value={destination} onChange={event=>setDestination(event.target.value)} onFocus={()=>setDestinationFocused(true)} onBlur={()=>setDestinationFocused(false)} placeholder={placeholder} aria-describedby="destination-hint" autoComplete="off"/><small id="destination-hint" className="sr-only">Type a town, postcode or address you travel to, such as Hammersmith or Edinburgh.</small></Field>
+    <Field id="destination" label="Main destination"><div className="pin-input"><input id="destination" value={destination} onChange={event=>setDestination(event.target.value)} onFocus={()=>setDestinationFocused(true)} onBlur={()=>setDestinationFocused(false)} placeholder={placeholder} aria-describedby="destination-hint" autoComplete="off"/><button type="button" className={'pin-button'+(pin&&pin.label===destination?' set':'')} onClick={()=>setPicking(0)} title="Drop a pin on the map" aria-label="Drop a pin on the map for the exact spot">📍</button></div>{pin&&pin.label===destination&&<small className="pin-note">Using the exact spot you pinned.</small>}<small id="destination-hint" className="sr-only">Type a town, postcode or address you travel to, such as Hammersmith or Edinburgh.</small></Field>
     <Field id="transport" label="Travel mode"><select id="transport" value={transport} onChange={event=>setTransport(event.target.value as TransportMode)}><option value="any">Any travel mode</option><option value="drive">Drive</option><option value="transit">Public transport + walking</option><option value="cycle">Cycle</option><option value="walk">Walk</option></select></Field>
-    <div className="additional-destinations">{additional.map((item,index)=><fieldset key={index}><legend>Destination {index+2}</legend><label>Address or town<input aria-label={'Destination '+(index+2)} value={item.address} onChange={e=>setAdditional(old=>old.map((d,i)=>i===index?{...d,address:e.target.value}:d))}/></label><label>Travel mode<select aria-label={'Destination '+(index+2)+' travel mode'} value={item.transportMode} onChange={e=>setAdditional(old=>old.map((d,i)=>i===index?{...d,transportMode:e.target.value as TransportMode}:d))}>{[['any','Any travel mode'],['drive','Driving'],['transit','Public transport + walking'],['cycle','Cycling'],['walk','Walking']].map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label><label>Minimum minutes<input aria-label={'Destination '+(index+2)+' minimum minutes'} type="number" min="0" value={item.minimumMinutes} onChange={e=>setAdditional(old=>old.map((d,i)=>i===index?{...d,minimumMinutes:Number(e.target.value)}:d))}/></label><label>Maximum minutes<input aria-label={'Destination '+(index+2)+' maximum minutes'} type="number" min="1" max="180" value={item.maximumMinutes} onChange={e=>setAdditional(old=>old.map((d,i)=>i===index?{...d,maximumMinutes:Number(e.target.value)}:d))}/></label><button type="button" onClick={()=>setAdditional(old=>old.filter((_,i)=>i!==index))}>Remove destination {index+2}</button></fieldset>)}{additional.length<2&&<button type="button" className="btn light" onClick={()=>setAdditional(old=>[...old,{address:'',transportMode:'drive',minimumMinutes:0,maximumMinutes:45}])}>+ Add another destination</button>}<small>Up to three destinations, each with its own travel mode and time limits. Distance limits and departure time apply to all.</small></div>
+    <div className="additional-destinations">{additional.map((item,index)=><fieldset key={index}><legend>Destination {index+2}</legend><label>Address or town<span className="pin-input"><input aria-label={'Destination '+(index+2)} value={item.address} onChange={e=>setAdditional(old=>old.map((d,i)=>i===index?{...d,address:e.target.value}:d))}/><button type="button" className={'pin-button'+(item.pin&&item.pin.label===item.address?' set':'')} onClick={()=>setPicking(index+1)} title="Drop a pin on the map" aria-label={'Drop a pin for destination '+(index+2)}>📍</button></span></label><label>Travel mode<select aria-label={'Destination '+(index+2)+' travel mode'} value={item.transportMode} onChange={e=>setAdditional(old=>old.map((d,i)=>i===index?{...d,transportMode:e.target.value as TransportMode}:d))}>{[['any','Any travel mode'],['drive','Driving'],['transit','Public transport + walking'],['cycle','Cycling'],['walk','Walking']].map(([value,label])=><option key={value} value={value}>{label}</option>)}</select></label><label>Minimum minutes<input aria-label={'Destination '+(index+2)+' minimum minutes'} type="number" min="0" value={item.minimumMinutes} onChange={e=>setAdditional(old=>old.map((d,i)=>i===index?{...d,minimumMinutes:Number(e.target.value)}:d))}/></label><label>Maximum minutes<input aria-label={'Destination '+(index+2)+' maximum minutes'} type="number" min="1" max="180" value={item.maximumMinutes} onChange={e=>setAdditional(old=>old.map((d,i)=>i===index?{...d,maximumMinutes:Number(e.target.value)}:d))}/></label><button type="button" onClick={()=>setAdditional(old=>old.filter((_,i)=>i!==index))}>Remove destination {index+2}</button></fieldset>)}{additional.length<2&&<button type="button" className="btn light" onClick={()=>setAdditional(old=>[...old,{address:'',transportMode:'drive',minimumMinutes:0,maximumMinutes:45}])}>+ Add another destination</button>}<small>Up to three destinations, each with its own travel mode and time limits. Distance limits and departure time apply to all.</small></div>
     <Field id="departure-time" label={transport==="transit"?"When are you travelling? (needed for public transport)":"When are you travelling? (optional)"}><input id="departure-time" type="datetime-local" value={departureTime} onChange={event=>setDepartureTime(event.target.value)}/><small>{departureTime?"Journey times will use live traffic and public transport timetables for this day and time.":"Leave blank to see typical journey times by car, bike or on foot. Add a day and time to include public transport and live traffic."}</small></Field>
     <details className="refine"><summary>Refine journey time</summary><div className="refine-body">
     <RangeSlider id="travel" label="Travel time" lower={minimumTravel} upper={maximumTravel} min={0} max={120} unit="min" onLowerChange={setMinimumTravel} onUpperChange={setMaximumTravel}/>
@@ -120,6 +131,11 @@ function HeatMapContent(){
     </div></details>
    </div>}
    {(destination||additional.length>0||departureTime||limitDistance||minimumTravel!==0||maximumTravel!==60||transport!=="drive")&&<button type="button" className="link-button form-reset" onClick={resetSearch}>Clear and start again</button>}
+   {picking!==undefined&&<PinPicker
+     initial={picking===0?(pin&&pin.label===destination?pin:undefined):(additional[picking-1]?.pin?.label===additional[picking-1]?.address?additional[picking-1]?.pin:undefined)}
+     near={picking===0?destination:additional[picking-1]?.address}
+     onClose={()=>setPicking(undefined)}
+     onPick={chosen=>{if(picking===0){setPin(chosen);setDestination(chosen.label);}else setAdditional(old=>old.map((d,i)=>i===picking-1?{...d,pin:chosen,address:chosen.label}:d));setPicking(undefined);}}/>}
    <button className="go wide" onClick={run} disabled={loading}>{loading?"Checking live data…":"Show my heat map"}<span>→</span></button>
    {error&&<p className="form-error" role="alert">{error}</p>}
   </div>
