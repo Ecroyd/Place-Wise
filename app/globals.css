@@ -349,3 +349,23 @@ button { cursor:pointer; }
   .account-actions.open{position:absolute;right:12px;top:10px;z-index:30;background:var(--paper,#fffdf8);padding:8px;border-radius:16px;box-shadow:0 10px 30px #18332c30;gap:4px;min-width:200px}
 }
 @media(max-width:900px){.commute-controls select,.commute-controls input:not([type=checkbox]):not([type=range]){font-size:16px}}
+.result-actions{display:flex;gap:8px;flex-wrap:wrap}
+.link-button{background:none;border:0;padding:4px 0;font:inherit;font-size:13px;font-weight:700;color:#285d49;text-decoration:underline;cursor:pointer}
+.form-reset{display:block;margin:0 0 10px auto}
+@media(max-width:600px){.result-actions{gap:6px}.result-actions .btn{padding:8px 10px}.result-head h1{font-size:18px}}
+/* Owner-only site stats */
+.site-stats h3{font-size:13px;margin:16px 0 6px}
+.stats-grid{display:grid;gap:2px;font-size:13px}
+.stats-row{display:grid;grid-template-columns:1.3fr repeat(3,1fr);gap:6px;padding:6px 0;border-bottom:1px solid #18332c14;align-items:baseline}
+.stats-row b{font-size:15px;text-align:right}
+.stats-head span{font-size:10px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#60716b;text-align:right}
+.stats-note{font-size:11px;color:#63756e;margin:8px 0 0}
+.stats-chart{display:flex;align-items:flex-end;gap:2px;height:110px;padding:6px 0;border-bottom:1px solid #18332c22}
+.stats-day{flex:1;height:100%;display:flex;align-items:flex-end;gap:1px}
+.stats-day i{flex:1;display:block;min-height:1px;border-radius:2px 2px 0 0}
+.bar-visitors,.key-visitors{background:#285d49}.bar-searches,.key-searches{background:#c98a2b}
+.stats-legend{font-size:11px;color:#63756e;display:flex;align-items:center;gap:6px;margin:6px 0 0}
+.stats-legend span{display:inline-block;width:10px;height:10px;border-radius:2px;margin-left:6px}
+.stats-list{margin:0;padding:0;list-style:none;font-size:13px}
+.stats-list li{display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid #18332c10}
+.stats-list span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

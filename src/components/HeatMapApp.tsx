@@ -1,6 +1,7 @@
 "use client";
 import {useState} from "react";
 import {SearchViewProvider,useSearchView} from './SearchView';
+import {track} from '@/src/lib/client/track';
 import {defaultView} from '@/src/lib/account/view';
 import {AccountMenu} from './AccountMenu';
 import type {SavedCriteria} from '@/src/lib/account/searches';
@@ -37,6 +38,13 @@ function HeatMapContent(){
  const [journeys,setJourneys]=useState(5);
  const [departureTime,setDepartureTime]=useState("");
  const [transport,setTransport]=useState<TransportMode>("drive");
+ // "Start again": back to an empty search form with every setting at its default.
+ function resetSearch(){
+  setDestinations([]);setView(defaultView());setSearchRevision(n=>n+1);setError(undefined);
+  setMode("live");setDestination("");setTransport("drive");setAdditional([]);setDepartureTime("");
+  setLimitDistance(false);setDistance(40);setMinimumDistance(0);setMinimumTravel(0);setMaximumTravel(60);setJourneys(5);
+  window.scrollTo({top:0,behavior:'smooth'});
+ }
 
  function loadSaved(saved:SavedCriteria){
   const view=saved.view??defaultView();
@@ -78,11 +86,12 @@ function HeatMapContent(){
    // Google (paid) routing is only used when a departure time is chosen.
    parsed.destinations=parsed.destinations.map(item=>departureTime?{...item,departureTime:new Date(departureTime).toISOString()}:{...item,departureTime:undefined});
    setView(defaultView());setSearchRevision(n=>n+1);setDestinations(parsed.destinations);
+   track({kind:'search',detail:(parsed.destinations[0]?.label??'').split(',')[0]});
   }catch(cause){setError(cause instanceof Error?cause.message:"Optimisation failed")}
   finally{setLoading(false)}
  }
 
- if(destinations.length)return <Results key={searchRevision} destinations={destinations} edit={()=>setDestinations([])} nav={nav} onDestinationsChange={setDestinations}/>;
+ if(destinations.length)return <Results key={searchRevision} destinations={destinations} reset={resetSearch} edit={()=>setDestinations([])} nav={nav} onDestinationsChange={setDestinations}/>;
  return <main className="shell home">{nav}
  <section className="home-hero">
   <div className="home-intro">
@@ -110,6 +119,7 @@ function HeatMapContent(){
     <Slider id="journeys" label="Journeys per week" value={journeys} min={1} max={7} suffix="" set={setJourneys}/>
     </div></details>
    </div>}
+   {(destination||additional.length>0||departureTime||limitDistance||minimumTravel!==0||maximumTravel!==60||transport!=="drive")&&<button type="button" className="link-button form-reset" onClick={resetSearch}>Clear and start again</button>}
    <button className="go wide" onClick={run} disabled={loading}>{loading?"Checking live data…":"Show my heat map"}<span>→</span></button>
    {error&&<p className="form-error" role="alert">{error}</p>}
   </div>
@@ -141,9 +151,9 @@ function HeatMapContent(){
 </main>;
 }
 
-function Results({destinations,edit,nav,onDestinationsChange}:{destinations:DestinationConstraint[];edit:()=>void;nav:React.ReactNode;onDestinationsChange:(destinations:DestinationConstraint[])=>void}){
+function Results({destinations,edit,reset,nav,onDestinationsChange}:{destinations:DestinationConstraint[];edit:()=>void;reset:()=>void;nav:React.ReactNode;onDestinationsChange:(destinations:DestinationConstraint[])=>void}){
  return <main className="workspace">{nav}
-  <section className="result-head"><div><span className="eyebrow">Commute-time heatmap</span><h1 className="serif">Best areas for your life</h1></div><button className="btn light" onClick={edit}>Edit priorities</button></section>
+  <section className="result-head"><div><span className="eyebrow">Commute-time heatmap</span><h1 className="serif">Best areas for your life</h1></div><div className="result-actions"><button className="btn light" onClick={edit}>Edit priorities</button><button className="btn light" onClick={reset}>Start again</button></div></section>
   <AreaResults key={JSON.stringify(destinations)} onDestinationsChange={onDestinationsChange} destinations={destinations}/>
   <footer className="demo-note">Where shown, historical price averages use HM Land Registry data © Crown copyright and database right 2021, licensed under the Open Government Licence v3.0. Map © OpenStreetMap contributors.</footer>
  </main>

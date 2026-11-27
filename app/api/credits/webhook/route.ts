@@ -1,4 +1,5 @@
 import {getPlacewiseClient} from '@/src/lib/supabase/server';
+import {recordEvent} from '@/src/lib/server/analytics';
 import {feeForSession,STRIPE_APP_TAG,verifyWebhook,type CompletedSession} from '@/src/lib/server/stripe';
 export const runtime='nodejs';
 
@@ -21,8 +22,10 @@ export async function POST(request:Request){
  try{
   const fee=await feeForSession(session);
   const credit=Math.max(0,paid-fee)*100;
-  const {error}=await getPlacewiseClient().rpc('credit_topup',{p_user:userId,p_credit:credit,p_paid_pence:paid,p_fee_pence:fee,p_session:session.id});
+  const {data:credited,error}=await getPlacewiseClient().rpc('credit_topup',{p_user:userId,p_credit:credit,p_paid_pence:paid,p_fee_pence:fee,p_session:session.id});
   if(error)throw error;
+  // credit_topup returns false for a replayed session; count each payment once.
+  if(credited!==false)await recordEvent('topup',{detail:String(paid)});
   return Response.json({received:true});
  }catch(error){
   // A 500 makes Stripe retry later (e.g. when the fee is not reported yet).

@@ -1,4 +1,6 @@
 "use client";
+import {track} from '@/src/lib/client/track';
+import {SiteStats} from './SiteStats';
 import {useEffect,useRef,useState} from 'react';
 import type {Session} from '@supabase/supabase-js';
 import {getBrowserClient} from '@/src/lib/supabase/browser';
@@ -10,7 +12,18 @@ export function AccountMenu({criteria,onLoad}:{criteria?:SavedCriteria;onLoad:(c
  const [ready,setReady]=useState(false);
  const [awaitingTopUp,setAwaitingTopUp]=useState(false);
  const [menuOpen,setMenuOpen]=useState(false);
- const [panel,setPanel]=useState<'signin'|'signup'|'saved'|'save'|'forgot'|'resend'|'reset'|'credit'|null>(null);
+ const [panel,setPanel]=useState<'signin'|'signup'|'saved'|'save'|'forgot'|'resend'|'reset'|'credit'|'stats'|null>(null);
+ const [isAdmin,setIsAdmin]=useState(false);
+ // Owners (listed in placewise.site_admins) get a "Site stats" button; the server decides.
+ const token=session?.access_token;
+ useEffect(()=>{
+  let active=true;
+  void (async()=>{
+   const response=token?await fetch('/api/admin/stats?check=1',{headers:{Authorization:'Bearer '+token}}).catch(()=>null):null;
+   if(active)setIsAdmin(!!response?.ok);
+  })();
+  return()=>{active=false;};
+ },[token]);
  const [confirmation,setConfirmation]=useState('');
  const [email,setEmail]=useState('');const [password,setPassword]=useState('');
  const [name,setName]=useState('');const [searches,setSearches]=useState<SavedSearch[]>([]);
@@ -44,7 +57,7 @@ export function AccountMenu({criteria,onLoad}:{criteria?:SavedCriteria;onLoad:(c
   if(current===generation.current)setSearches((data??[]) as SavedSearch[]);
  }
  async function perform(task:()=>Promise<void>){setBusy(true);setError('');setMessage('');try{await task();}catch(cause){setError(cause instanceof Error?cause.message:(cause as {message?:string})?.message??'Something went wrong. Please try again.');}finally{setBusy(false);}}
- function open(next:'signin'|'saved'|'save'|'credit'){
+ function open(next:'signin'|'saved'|'save'|'credit'|'stats'){
   setMenuOpen(false);
   setError('');setMessage('');setPassword('');setPanel(session?next:'signin');
   if(next==='save')setName(criteria?.destinations.map(d=>d.label).join(' + ').slice(0,120)??'My search');
@@ -54,6 +67,7 @@ export function AccountMenu({criteria,onLoad}:{criteria?:SavedCriteria;onLoad:(c
   const client=getBrowserClient();
   if(panel==='signup'){
    const {data,error}=await client.auth.signUp({email:email.trim(),password,options:{emailRedirectTo:window.location.origin+'/'}});if(error)throw error;
+   if(data.user&&data.user.identities?.length)track({kind:'signup'});
    setPassword('');if(data.session){setSession(data.session);setPanel('saved');await loadSearches();}else setMessage('Check your email to confirm your account, then sign in here.');
   }else{
    const {data,error}=await client.auth.signInWithPassword({email:email.trim(),password});if(error)throw error;
@@ -86,9 +100,9 @@ export function AccountMenu({criteria,onLoad}:{criteria?:SavedCriteria;onLoad:(c
  return <><div className={menuOpen?'account-actions open':'account-actions'}>
   {session&&<button type="button" className="btn account-toggle" aria-expanded={menuOpen} onClick={()=>setMenuOpen(o=>!o)}>Account ▾</button>}
   {criteria&&<button className={session?'btn light':'btn light account-save-signed-out'} disabled={!ready} onClick={()=>open('save')}>Save search</button>}
-  {session?<><button className="btn light" onClick={()=>open('credit')}>Usage credit</button><button className="btn light" onClick={()=>open('saved')}>Saved searches</button><button className="btn" disabled={busy} onClick={()=>void perform(async()=>{const {error}=await getBrowserClient().auth.signOut();if(error)throw error;setSession(null);setSearches([]);setPanel(null);setMenuOpen(false);})}>Sign out</button></>:<button className="btn primary" disabled={!ready} onClick={()=>open('signin')}>{ready?'Sign in':'Loading account…'}</button>}
+  {session?<>{isAdmin&&<button className="btn light" onClick={()=>open('stats')}>Site stats</button>}<button className="btn light" onClick={()=>open('credit')}>Usage credit</button><button className="btn light" onClick={()=>open('saved')}>Saved searches</button><button className="btn" disabled={busy} onClick={()=>void perform(async()=>{const {error}=await getBrowserClient().auth.signOut();if(error)throw error;setSession(null);setSearches([]);setPanel(null);setMenuOpen(false);})}>Sign out</button></>:<button className="btn primary" disabled={!ready} onClick={()=>open('signin')}>{ready?'Sign in':'Loading account…'}</button>}
  </div><dialog ref={dialog} className="account-dialog" onCancel={()=>setPanel(null)} onClose={()=>{setPanel(null);setPassword('');}}>
-  <div className="account-heading"><h2>{panel==='forgot'?'Reset your password':panel==='resend'?'Resend confirmation':panel==='reset'?'Choose a new password':panel==='credit'?'Usage credit':panel==='save'?'Save this search':panel==='saved'?'Your saved searches':panel==='signup'?'Create an account':'Sign in'}</h2><button type="button" className="btn" aria-label="Close account panel" onClick={()=>setPanel(null)}>Close</button></div>
+  <div className="account-heading"><h2>{panel==='forgot'?'Reset your password':panel==='resend'?'Resend confirmation':panel==='reset'?'Choose a new password':panel==='stats'?'Site stats':panel==='credit'?'Usage credit':panel==='save'?'Save this search':panel==='saved'?'Your saved searches':panel==='signup'?'Create an account':'Sign in'}</h2><button type="button" className="btn" aria-label="Close account panel" onClick={()=>setPanel(null)}>Close</button></div>
   {(panel==='signin'||panel==='signup')&&<form onSubmit={event=>{event.preventDefault();void perform(authenticate);}}>
    <p>Save your destinations, travel limits and map layers, and open them on another device.</p>
    <label>Email<input type="email" autoComplete="email" required value={email} onChange={e=>setEmail(e.target.value)}/></label>
@@ -103,6 +117,7 @@ export function AccountMenu({criteria,onLoad}:{criteria?:SavedCriteria;onLoad:(c
   {panel==='save'&&<form onSubmit={event=>{event.preventDefault();void perform(save);}}><label>Search name<input required maxLength={120} value={name} onChange={e=>setName(e.target.value)}/></label><p>Includes all destinations, journey modes and limits. Also saves map position, visible layers, school filters and combined-match preferences.</p><button className="btn primary" disabled={busy}>{busy?'Saving…':'Save search'}</button></form>}
   {panel==='saved'&&<><p>{session?.user.email}</p>{busy&&<p>Loading…</p>}{!busy&&!searches.length&&<p>No saved searches yet. Run a search and choose Save search.</p>}{searches.map(search=><article className="saved-search" key={search.id}><strong>{search.name}</strong><small>Saved {new Date(search.created_at).toLocaleDateString('en-GB')}</small><div><button className="btn primary" disabled={busy} onClick={()=>{try{onLoad(restoreCriteria(search.criteria));setPanel(null);}catch{setError('This saved search has an unsupported format. Please create a new search.');}}}>Open search</button><button className="btn" disabled={busy} onClick={()=>void perform(async()=>{const result=await getBrowserClient().from('saved_searches').delete().eq('id',search.id);if(result.error)throw result.error;await loadSearches();})}>Delete</button></div></article>)}</>}
   {panel==='credit'&&session&&<UsageCredit awaitingTopUp={awaitingTopUp}/>}
+  {panel==='stats'&&session&&isAdmin&&<SiteStats/>}
   {message&&<p role="status">{message}</p>}{error&&<p role="alert">{error}</p>}
  </dialog></>;
 }
